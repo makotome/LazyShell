@@ -1,0 +1,1199 @@
+{
+  "version": "1.0.0",
+  "commands": [
+    {
+      "name": "ls",
+      "description": "列出目录内容",
+      "category": "file",
+      "parameters": [
+        {"flag": "-l", "description": "详细列表格式"},
+        {"flag": "-a", "description": "显示隐藏文件"},
+        {"flag": "-h", "description": "人类可读的文件大小"},
+        {"flag": "-R", "description": "递归列出子目录"},
+        {"flag": "-t", "description": "按修改时间排序"},
+        {"flag": "-S", "description": "按文件大小排序"}
+      ],
+      "examples": [
+        {"command": "ls -la", "description": "详细列出所有文件包括隐藏文件"},
+        {"command": "ls -lh /var/log", "description": "以可读大小列出日志目录"},
+        {"command": "ls -lt --color=auto", "description": "按时间排序并显示颜色"}
+      ],
+      "scenarios": ["查看文件", "列出目录", "查看隐藏文件", "查看文件详情", "文件排序"]
+    },
+    {
+      "name": "cd",
+      "description": "切换当前目录",
+      "category": "file",
+      "parameters": [
+        {"flag": "-", "description": "返回上一个目录"},
+        {"flag": "~", "description": "切换到用户主目录"},
+        {"flag": "..", "description": "切换到上级目录"}
+      ],
+      "examples": [
+        {"command": "cd /etc/nginx", "description": "切换到nginx配置目录"},
+        {"command": "cd ~", "description": "返回主目录"},
+        {"command": "cd -", "description": "切换到上一个目录"}
+      ],
+      "scenarios": ["切换目录", "进入文件夹", "返回上级", "进入主目录"]
+    },
+    {
+      "name": "pwd",
+      "description": "显示当前工作目录",
+      "category": "file",
+      "parameters": [
+        {"flag": "-P", "description": "显示物理路径而非符号链接"}
+      ],
+      "examples": [
+        {"command": "pwd", "description": "显示当前目录"},
+        {"command": "pwd -P", "description": "显示实际物理路径"}
+      ],
+      "scenarios": ["查看当前位置", "查看当前目录", "确认目录"]
+    },
+    {
+      "name": "mkdir",
+      "description": "创建新目录",
+      "category": "file",
+      "parameters": [
+        {"flag": "-p", "description": "递归创建目录包括父目录"},
+        {"flag": "-m", "description": "设置目录权限"}
+      ],
+      "examples": [
+        {"command": "mkdir -p /data/project/src", "description": "递归创建目录结构"},
+        {"command": "mkdir -m 755 mydir", "description": "创建带权限的目录"}
+      ],
+      "scenarios": ["创建目录", "新建文件夹", "创建多级目录"]
+    },
+    {
+      "name": "rm",
+      "description": "删除文件或目录",
+      "category": "file",
+      "parameters": [
+        {"flag": "-r", "description": "递归删除目录"},
+        {"flag": "-f", "description": "强制删除不确认"},
+        {"flag": "-i", "description": "删除前确认"},
+        {"flag": "-v", "description": "显示删除详情"}
+      ],
+      "examples": [
+        {"command": "rm -rf /tmp/cache", "description": "强制递归删除目录"},
+        {"command": "rm -i *.log", "description": "删除日志文件前确认"}
+      ],
+      "scenarios": ["删除文件", "删除目录", "清理文件", "删除缓存"]
+    },
+    {
+      "name": "cp",
+      "description": "复制文件或目录",
+      "category": "file",
+      "parameters": [
+        {"flag": "-r", "description": "递归复制目录"},
+        {"flag": "-a", "description": "归档模式保留属性"},
+        {"flag": "-i", "description": "覆盖前确认"},
+        {"flag": "-v", "description": "显示复制详情"}
+      ],
+      "examples": [
+        {"command": "cp -a /home/user/* /backup/", "description": "归档复制所有文件"},
+        {"command": "cp file.txt /tmp/file.txt", "description": "复制文件到目标位置"}
+      ],
+      "scenarios": ["复制文件", "备份文件", "复制目录", "备份"]
+    },
+    {
+      "name": "mv",
+      "description": "移动或重命名文件",
+      "category": "file",
+      "parameters": [
+        {"flag": "-i", "description": "覆盖前确认"},
+        {"flag": "-v", "description": "显示移动详情"},
+        {"flag": "-n", "description": "不覆盖已存在的文件"}
+      ],
+      "examples": [
+        {"command": "mv oldname.txt newname.txt", "description": "重命名文件"},
+        {"command": "mv file.txt /home/user/", "description": "移动文件到目标目录"}
+      ],
+      "scenarios": ["移动文件", "重命名", "转移文件"]
+    },
+    {
+      "name": "touch",
+      "description": "创建空文件或更新文件时间戳",
+      "category": "file",
+      "parameters": [
+        {"flag": "-a", "description": "只更新访问时间"},
+        {"flag": "-m", "description": "只更新修改时间"},
+        {"flag": "-c", "description": "不创建新文件"}
+      ],
+      "examples": [
+        {"command": "touch newfile.txt", "description": "创建空文件"},
+        {"command": "touch -a script.sh", "description": "更新访问时间"}
+      ],
+      "scenarios": ["创建文件", "新建空文件", "更新文件时间"]
+    },
+    {
+      "name": "cat",
+      "description": "查看文件内容",
+      "category": "file",
+      "parameters": [
+        {"flag": "-n", "description": "显示行号"},
+        {"flag": "-A", "description": "显示所有字符包括不可见"},
+        {"flag": "-s", "description": "压缩连续空行"}
+      ],
+      "examples": [
+        {"command": "cat /etc/passwd", "description": "查看用户文件"},
+        {"command": "cat -n file.txt", "description": "带行号查看文件"}
+      ],
+      "scenarios": ["查看文件", "显示内容", "阅读文件", "查看日志"]
+    },
+    {
+      "name": "head",
+      "description": "显示文件开头部分",
+      "category": "file",
+      "parameters": [
+        {"flag": "-n", "description": "显示前n行"},
+        {"flag": "-c", "description": "显示前n个字节"}
+      ],
+      "examples": [
+        {"command": "head -20 /var/log/syslog", "description": "查看日志前20行"},
+        {"command": "head -n 100 file.csv", "description": "查看CSV前100行"}
+      ],
+      "scenarios": ["查看文件开头", "预览文件", "查看日志开头"]
+    },
+    {
+      "name": "tail",
+      "description": "显示文件结尾部分",
+      "category": "file",
+      "parameters": [
+        {"flag": "-n", "description": "显示后n行"},
+        {"flag": "-f", "description": "实时跟踪文件变化"},
+        {"flag": "-F", "description": "跟踪并重新打开"},
+        {"flag": "--pid", "description": "指定PID结束时停止"}
+      ],
+      "examples": [
+        {"command": "tail -f /var/log/syslog", "description": "实时查看系统日志"},
+        {"command": "tail -n 50 /var/log/nginx/access.log", "description": "查看日志最后50行"}
+      ],
+      "scenarios": ["查看日志结尾", "实时监控日志", "查看最新日志", "跟踪日志"]
+    },
+    {
+      "name": "grep",
+      "description": "文本搜索工具",
+      "category": "text",
+      "parameters": [
+        {"flag": "-i", "description": "忽略大小写"},
+        {"flag": "-r", "description": "递归搜索目录"},
+        {"flag": "-n", "description": "显示行号"},
+        {"flag": "-v", "description": "反转匹配"},
+        {"flag": "-E", "description": "使用扩展正则"},
+        {"flag": "-c", "description": "只显示匹配行数"},
+        {"flag": "-l", "description": "只显示文件名"}
+      ],
+      "examples": [
+        {"command": "grep -rn 'error' /var/log/", "description": "递归搜索错误日志"},
+        {"command": "grep -E 'warning|error' app.log", "description": "搜索警告或错误"},
+        {"command": "ps aux | grep nginx", "description": "查找nginx进程"}
+      ],
+      "scenarios": ["搜索文本", "查找关键字", "日志分析", "进程查找", "过滤"]
+    },
+    {
+      "name": "find",
+      "description": "文件搜索工具",
+      "category": "file",
+      "parameters": [
+        {"flag": "-name", "description": "按文件名搜索"},
+        {"flag": "-type", "description": "按类型搜索(f/d/l)"},
+        {"flag": "-size", "description": "按大小搜索"},
+        {"flag": "-mtime", "description": "按修改时间搜索"},
+        {"flag": "-exec", "description": "对找到的文件执行命令"}
+      ],
+      "examples": [
+        {"command": "find /home -name '*.log'", "description": "查找所有日志文件"},
+        {"command": "find . -type f -size +100M", "description": "查找大于100M的文件"},
+        {"command": "find /tmp -type f -mtime +7", "description": "查找7天前的临时文件"}
+      ],
+      "scenarios": ["查找文件", "搜索文件", "清理旧文件", "查找大文件"]
+    },
+    {
+      "name": "chmod",
+      "description": "修改文件权限",
+      "category": "file",
+      "parameters": [
+        {"flag": "-R", "description": "递归修改"},
+        {"flag": "+x", "description": "添加执行权限"},
+        {"flag": "-x", "description": "移除执行权限"},
+        {"flag": "777", "description": "设置完全权限"}
+      ],
+      "examples": [
+        {"command": "chmod +x script.sh", "description": "添加执行权限"},
+        {"command": "chmod -R 755 /var/www", "description": "递归设置目录权限"},
+        {"command": "chmod 600 id_rsa", "description": "设置私钥权限"}
+      ],
+      "scenarios": ["修改权限", "添加执行权限", "设置文件权限", "安全权限"]
+    },
+    {
+      "name": "chown",
+      "description": "修改文件所有者和组",
+      "category": "file",
+      "parameters": [
+        {"flag": "-R", "description": "递归修改"},
+        {"flag": ":", "description": "分隔所有者和组"}
+      ],
+      "examples": [
+        {"command": "chown -R www-data:www-data /var/www", "description": "设置web目录所有者"},
+        {"command": "chown user:group file.txt", "description": "修改文件所有者和组"}
+      ],
+      "scenarios": ["修改所有者", "设置用户组", "web目录权限"]
+    },
+    {
+      "name": "awk",
+      "description": "文本分析处理工具",
+      "category": "text",
+      "parameters": [
+        {"flag": "-F", "description": "指定字段分隔符"},
+        {"flag": "-v", "description": "设置变量"}
+      ],
+      "examples": [
+        {"command": "awk -F: '{print $1}' /etc/passwd", "description": "提取用户名"},
+        {"command": "df -h | awk '{print $5 \" \" $6}'", "description": "显示磁盘使用率和挂载点"}
+      ],
+      "scenarios": ["文本处理", "日志分析", "数据提取", "格式化输出"]
+    },
+    {
+      "name": "sed",
+      "description": "流编辑器用于文本转换",
+      "category": "text",
+      "parameters": [
+        {"flag": "-i", "description": "直接修改文件"},
+        {"flag": "-e", "description": "执行多个编辑"},
+        {"flag": "s/", "description": "替换命令"}
+      ],
+      "examples": [
+        {"command": "sed -i 's/old/new/g' file.txt", "description": "全局替换文件中的文本"},
+        {"command": "sed -n '10,20p' file.txt", "description": "提取第10到20行"}
+      ],
+      "scenarios": ["文本替换", "批量替换", "文本编辑", "行提取"]
+    },
+    {
+      "name": "sort",
+      "description": "对文本行进行排序",
+      "category": "text",
+      "parameters": [
+        {"flag": "-r", "description": "反向排序"},
+        {"flag": "-n", "description": "数字排序"},
+        {"flag": "-k", "description": "按指定字段排序"},
+        {"flag": "-u", "description": "去重"}
+      ],
+      "examples": [
+        {"command": "sort -rn numbers.txt", "description": "数字反向排序"},
+        {"command": "cat file.txt | sort | uniq", "description": "排序后去重"}
+      ],
+      "scenarios": ["排序", "数据整理", "去重"]
+    },
+    {
+      "name": "uniq",
+      "description": "报告或忽略重复行",
+      "category": "text",
+      "parameters": [
+        {"flag": "-c", "description": "计数重复行"},
+        {"flag": "-d", "description": "只显示重复行"},
+        {"flag": "-i", "description": "忽略大小写"}
+      ],
+      "examples": [
+        {"command": "uniq -c file.txt", "description": "统计每行出现次数"},
+        {"command": "sort file.txt | uniq -d", "description": "找出重复行"}
+      ],
+      "scenarios": ["去重", "统计重复", "找出重复项"]
+    },
+    {
+      "name": "wc",
+      "description": "统计文件的行数、字数、字节数",
+      "category": "text",
+      "parameters": [
+        {"flag": "-l", "description": "统计行数"},
+        {"flag": "-w", "description": "统计单词数"},
+        {"flag": "-c", "description": "统计字节数"},
+        {"flag": "-m", "description": "统计字符数"}
+      ],
+      "examples": [
+        {"command": "wc -l /var/log/nginx/access.log", "description": "统计日志行数"},
+        {"command": "cat file.txt | wc -w", "description": "统计单词数"}
+      ],
+      "scenarios": ["统计行数", "统计字数", "文件统计", "计数"]
+    },
+    {
+      "name": "cut",
+      "description": "从每行提取字段",
+      "category": "text",
+      "parameters": [
+        {"flag": "-d", "description": "指定分隔符"},
+        {"flag": "-f", "description": "选择字段"},
+        {"flag": "-c", "description": "按字符位置"}
+      ],
+      "examples": [
+        {"command": "cut -d: -f1 /etc/passwd", "description": "提取用户名字段"},
+        {"command": "cut -c1-10 file.txt", "description": "提取每行前10个字符"}
+      ],
+      "scenarios": ["提取字段", "文本截取", "数据提取"]
+    },
+    {
+      "name": "echo",
+      "description": "输出文本或变量",
+      "category": "text",
+      "parameters": [
+        {"flag": "-e", "description": "解释转义字符"},
+        {"flag": "-n", "description": "不换行输出"}
+      ],
+      "examples": [
+        {"command": "echo $PATH", "description": "显示环境变量"},
+        {"command": "echo -e 'line1\\nline2'", "description": "输出多行文本"}
+      ],
+      "scenarios": ["输出文本", "显示变量", "测试", "打印信息"]
+    },
+    {
+      "name": "printf",
+      "description": "格式化输出",
+      "category": "text",
+      "parameters": [
+        {"flag": "\\n", "description": "换行"},
+        {"flag": "\\t", "description": "制表符"}
+      ],
+      "examples": [
+        {"command": "printf '%s %s\\n' hello world", "description": "格式化输出"},
+        {"command": "printf '%d\\n' 42", "description": "输出数字"}
+      ],
+      "scenarios": ["格式化输出", "打印", "格式化字符串"]
+    },
+    {
+      "name": "tee",
+      "description": "从标准输入读取并写入文件和标准输出",
+      "category": "text",
+      "parameters": [
+        {"flag": "-a", "description": "追加而非覆盖"}
+      ],
+      "examples": [
+        {"command": "echo 'text' | tee file.txt", "description": "同时输出和保存"},
+        {"command": "command | tee output.txt", "description": "记录命令输出"}
+      ],
+      "scenarios": ["保存输出", "同时显示和保存", "记录输出"]
+    },
+    {
+      "name": "uname",
+      "description": "显示系统信息",
+      "category": "system",
+      "parameters": [
+        {"flag": "-a", "description": "显示所有信息"},
+        {"flag": "-r", "description": "显示内核版本"},
+        {"flag": "-n", "description": "显示主机名"}
+      ],
+      "examples": [
+        {"command": "uname -a", "description": "显示完整系统信息"},
+        {"command": "uname -r", "description": "显示内核版本"}
+      ],
+      "scenarios": ["查看系统信息", "查看内核", "系统信息"]
+    },
+    {
+      "name": "top",
+      "description": "显示进程动态信息",
+      "category": "system",
+      "parameters": [
+        {"flag": "-d", "description": "刷新间隔秒数"},
+        {"flag": "-p", "description": "监控指定PID"},
+        {"flag": "-u", "description": "只显示指定用户进程"}
+      ],
+      "examples": [
+        {"command": "top", "description": "查看进程管理器"},
+        {"command": "top -u www-data", "description": "查看www-data用户进程"},
+        {"command": "top -p 1234", "description": "监控特定进程"}
+      ],
+      "scenarios": ["查看进程", "系统监控", "资源使用", "CPU监控", "内存监控"]
+    },
+    {
+      "name": "ps",
+      "description": "显示当前进程快照",
+      "category": "system",
+      "parameters": [
+        {"flag": "aux", "description": "显示所有进程"},
+        {"flag": "-ef", "description": "完整格式显示"},
+        {"flag": "--forest", "description": "树状显示"}
+      ],
+      "examples": [
+        {"command": "ps aux | grep nginx", "description": "查找nginx进程"},
+        {"command": "ps -ef --forest", "description": "树状显示进程"},
+        {"command": "ps aux --sort=-%mem", "description": "按内存排序"}
+      ],
+      "scenarios": ["查看进程", "查找进程", "进程列表", "进程状态"]
+    },
+    {
+      "name": "df",
+      "description": "显示磁盘空间使用情况",
+      "category": "system",
+      "parameters": [
+        {"flag": "-h", "description": "人类可读格式"},
+        {"flag": "-T", "description": "显示文件系统类型"},
+        {"flag": "-i", "description": "显示inode信息"}
+      ],
+      "examples": [
+        {"command": "df -h", "description": "查看磁盘使用情况"},
+        {"command": "df -hT", "description": "显示文件系统类型"},
+        {"command": "df -i", "description": "查看inode使用"}
+      ],
+      "scenarios": ["查看磁盘空间", "磁盘使用率", "存储监控", "磁盘容量"]
+    },
+    {
+      "name": "du",
+      "description": "估算文件或目录磁盘使用",
+      "category": "system",
+      "parameters": [
+        {"flag": "-h", "description": "人类可读格式"},
+        {"flag": "-s", "description": "只显示总计"},
+        {"flag": "-d", "description": "指定目录深度"},
+        {"flag": "--max-depth", "description": "最大显示深度"}
+      ],
+      "examples": [
+        {"command": "du -sh *", "description": "查看各目录大小"},
+        {"command": "du -h --max-depth=1 /home", "description": "查看用户目录层级大小"},
+        {"command": "du -sh /var/log", "description": "查看日志目录总大小"}
+      ],
+      "scenarios": ["查看目录大小", "磁盘占用", "查找大文件", "清理空间"]
+    },
+    {
+      "name": "free",
+      "description": "显示内存使用情况",
+      "category": "system",
+      "parameters": [
+        {"flag": "-h", "description": "人类可读格式"},
+        {"flag": "-m", "description": "以MB为单位"},
+        {"flag": "-g", "description": "以GB为单位"},
+        {"flag": "-s", "description": "持续刷新"}
+      ],
+      "examples": [
+        {"command": "free -h", "description": "查看内存使用"},
+        {"command": "free -m", "description": "以MB显示"},
+        {"command": "free -h -s 5", "description": "每5秒刷新"}
+      ],
+      "scenarios": ["查看内存", "内存使用率", "RAM监控", "内存分析"]
+    },
+    {
+      "name": "uptime",
+      "description": "显示系统运行时间",
+      "category": "system",
+      "parameters": [],
+      "examples": [
+        {"command": "uptime", "description": "显示运行时间和负载"},
+        {"command": "uptime -p", "description": "可读格式显示运行时间"}
+      ],
+      "scenarios": ["查看运行时间", "系统负载", "服务器运行状态"]
+    },
+    {
+      "name": "whoami",
+      "description": "显示当前用户名",
+      "category": "system",
+      "parameters": [],
+      "examples": [
+        {"command": "whoami", "description": "显示当前用户"}
+      ],
+      "scenarios": ["查看当前用户", "确认身份"]
+    },
+    {
+      "name": "id",
+      "description": "显示用户和组身份",
+      "category": "system",
+      "parameters": [
+        {"flag": "-u", "description": "只显示UID"},
+        {"flag": "-g", "description": "只显示GID"}
+      ],
+      "examples": [
+        {"command": "id", "description": "显示用户和组ID"},
+        {"command": "id www-data", "description": "显示指定用户信息"}
+      ],
+      "scenarios": ["查看用户ID", "查看组信息", "确认权限"]
+    },
+    {
+      "name": "ping",
+      "description": "测试网络连接",
+      "category": "network",
+      "parameters": [
+        {"flag": "-c", "description": "指定ping次数"},
+        {"flag": "-i", "description": "ping间隔秒数"},
+        {"flag": "-s", "description": "数据包大小"}
+      ],
+      "examples": [
+        {"command": "ping -c 4 8.8.8.8", "description": "测试网络连接"},
+        {"command": "ping google.com", "description": "测试DNS解析"}
+      ],
+      "scenarios": ["测试网络", "网络诊断", "连通性测试", "DNS测试"]
+    },
+    {
+      "name": "curl",
+      "description": "传输数据，支持多种协议",
+      "category": "network",
+      "parameters": [
+        {"flag": "-X", "description": "指定HTTP方法"},
+        {"flag": "-H", "description": "添加请求头"},
+        {"flag": "-d", "description": "POST数据"},
+        {"flag": "-o", "description": "输出到文件"},
+        {"flag": "-O", "description": "使用远程文件名"},
+        {"flag": "-L", "description": "跟随重定向"},
+        {"flag": "-s", "description": "静默模式"},
+        {"flag": "-v", "description": "详细输出"}
+      ],
+      "examples": [
+        {"command": "curl https://api.example.com", "description": "获取网页内容"},
+        {"command": "curl -X POST -d 'data=value' https://api.example.com", "description": "发送POST请求"},
+        {"command": "curl -H 'Authorization: Bearer token' https://api.example.com", "description": "带认证请求"}
+      ],
+      "scenarios": ["下载文件", "HTTP请求", "API测试", "网页内容", "数据传输"]
+    },
+    {
+      "name": "wget",
+      "description": "非交互式下载工具",
+      "category": "network",
+      "parameters": [
+        {"flag": "-O", "description": "输出到指定文件"},
+        {"flag": "-c", "description": "断点续传"},
+        {"flag": "-r", "description": "递归下载"},
+        {"flag": "-q", "description": "静默模式"}
+      ],
+      "examples": [
+        {"command": "wget https://example.com/file.zip", "description": "下载文件"},
+        {"command": "wget -c largefile.iso", "description": "断点续传下载"}
+      ],
+      "scenarios": ["下载文件", "批量下载", "网站镜像", "断点续传"]
+    },
+    {
+      "name": "ssh",
+      "description": "安全远程登录",
+      "category": "network",
+      "parameters": [
+        {"flag": "-p", "description": "指定端口"},
+        {"flag": "-i", "description": "指定私钥文件"},
+        {"flag": "-l", "description": "指定用户名"},
+        {"flag": "-v", "description": "详细输出"}
+      ],
+      "examples": [
+        {"command": "ssh user@hostname", "description": "连接到远程服务器"},
+        {"command": "ssh -p 2222 -i ~/.ssh/key.pem user@host", "description": "指定端口和密钥登录"}
+      ],
+      "scenarios": ["远程登录", "SSH连接", "服务器管理", "密钥登录"]
+    },
+    {
+      "name": "scp",
+      "description": "安全复制文件",
+      "category": "network",
+      "parameters": [
+        {"flag": "-r", "description": "递归复制目录"},
+        {"flag": "-P", "description": "指定端口"},
+        {"flag": "-i", "description": "指定私钥"}
+      ],
+      "examples": [
+        {"command": "scp file.txt user@host:/path/", "description": "上传文件到远程"},
+        {"command": "scp user@host:/path/file.txt .", "description": "从远程下载文件"},
+        {"command": "scp -r folder user@host:/path/", "description": "递归复制目录"}
+      ],
+      "scenarios": ["文件传输", "上传文件", "下载文件", "远程复制"]
+    },
+    {
+      "name": "netstat",
+      "description": "显示网络连接和端口",
+      "category": "network",
+      "parameters": [
+        {"flag": "-t", "description": "TCP连接"},
+        {"flag": "-u", "description": "UDP连接"},
+        {"flag": "-l", "description": "监听中的socket"},
+        {"flag": "-n", "description": "数字地址"},
+        {"flag": "-p", "description": "显示进程"},
+        {"flag": "a", "description": "所有连接"}
+      ],
+      "examples": [
+        {"command": "netstat -tulnp", "description": "显示监听端口和进程"},
+        {"command": "netstat -an | grep ESTABLISHED", "description": "查看已建立连接"}
+      ],
+      "scenarios": ["查看端口", "网络连接", "端口监控", "服务监听"]
+    },
+    {
+      "name": "ss",
+      "description": "显示socket统计信息，比netstat更快",
+      "category": "network",
+      "parameters": [
+        {"flag": "-t", "description": "TCP连接"},
+        {"flag": "-u", "description": "UDP连接"},
+        {"flag": "-l", "description": "监听端口"},
+        {"flag": "-p", "description": "显示进程"},
+        {"flag": "-n", "description": "数字格式"}
+      ],
+      "examples": [
+        {"command": "ss -tulnp", "description": "显示监听端口"},
+        {"command": "ss - state established", "description": "显示已建立连接"}
+      ],
+      "scenarios": ["查看端口", "网络连接", "快速端口查看", "socket统计"]
+    },
+    {
+      "name": "ifconfig",
+      "description": "配置或显示网络接口",
+      "category": "network",
+      "parameters": [
+        {"flag": "up", "description": "启用接口"},
+        {"flag": "down", "description": "禁用接口"}
+      ],
+      "examples": [
+        {"command": "ifconfig", "description": "显示所有接口"},
+        {"command": "ifconfig eth0", "description": "显示特定接口"},
+        {"command": "ifconfig eth0 192.168.1.100", "description": "设置接口IP"}
+      ],
+      "scenarios": ["查看IP", "网络配置", "接口状态", "设置IP"]
+    },
+    {
+      "name": "ip",
+      "description": "显示或管理路由、网络接口",
+      "category": "network",
+      "parameters": [
+        {"flag": "addr", "description": "地址管理"},
+        {"flag": "link", "description": "接口管理"},
+        {"flag": "route", "description": "路由管理"}
+      ],
+      "examples": [
+        {"command": "ip addr", "description": "显示IP地址"},
+        {"command": "ip link set eth0 up", "description": "启用接口"},
+        {"command": "ip route show", "description": "显示路由表"}
+      ],
+      "scenarios": ["网络管理", "IP管理", "路由配置", "接口配置"]
+    },
+    {
+      "name": "kill",
+      "description": "终止进程",
+      "category": "process",
+      "parameters": [
+        {"flag": "-9", "description": "强制终止"},
+        {"flag": "-15", "description": "优雅终止"},
+        {"flag": "-l", "description": "列出信号"}
+      ],
+      "examples": [
+        {"command": "kill 1234", "description": "终止进程1234"},
+        {"command": "kill -9 1234", "description": "强制终止进程"},
+        {"command": "kill -SIGTERM 1234", "description": "发送终止信号"}
+      ],
+      "scenarios": ["终止进程", "杀进程", "结束程序", "强制杀死"]
+    },
+    {
+      "name": "killall",
+      "description": "按名称终止进程",
+      "category": "process",
+      "parameters": [
+        {"flag": "-9", "description": "强制终止"},
+        {"flag": "-i", "description": "交互确认"}
+      ],
+      "examples": [
+        {"command": "killall nginx", "description": "终止所有nginx进程"},
+        {"command": "killall -9 firefox", "description": "强制终止所有firefox"}
+      ],
+      "scenarios": ["杀进程", "批量终止", "按名称杀进程"]
+    },
+    {
+      "name": "pkill",
+      "description": "按名称或属性终止进程",
+      "category": "process",
+      "parameters": [
+        {"flag": "-9", "description": "强制终止"},
+        {"flag": "-f", "description": "匹配完整命令行"},
+        {"flag": "-u", "description": "匹配用户"}
+      ],
+      "examples": [
+        {"command": "pkill nginx", "description": "终止nginx进程"},
+        {"command": "pkill -f 'python.*server'", "description": "终止匹配的python进程"}
+      ],
+      "scenarios": ["杀进程", "按模式杀进程", "正则杀进程"]
+    },
+    {
+      "name": "jobs",
+      "description": "显示当前shell作业",
+      "category": "process",
+      "parameters": [
+        {"flag": "-l", "description": "显示进程ID"}
+      ],
+      "examples": [
+        {"command": "jobs", "description": "显示后台作业"},
+        {"command": "jobs -l", "description": "显示作业和PID"}
+      ],
+      "scenarios": ["查看后台任务", "查看作业", "任务管理"]
+    },
+    {
+      "name": "fg",
+      "description": "将后台作业放到前台",
+      "category": "process",
+      "parameters": [],
+      "examples": [
+        {"command": "fg", "description": "恢复最近的后台作业"},
+        {"command": "fg %1", "description": "恢复作业1"}
+      ],
+      "scenarios": ["恢复后台任务", "任务前台", "任务切换"]
+    },
+    {
+      "name": "bg",
+      "description": "将作业放到后台运行",
+      "category": "process",
+      "parameters": [],
+      "examples": [
+        {"command": "bg", "description": "后台运行当前作业"},
+        {"command": "bg %2", "description": "后台运行作业2"}
+      ],
+      "scenarios": ["后台运行", "任务后台化", "挂起切后台"]
+    },
+    {
+      "name": "nohup",
+      "description": "运行命令忽略挂起信号",
+      "category": "process",
+      "parameters": [
+        {"flag": "&", "description": "后台运行"}
+      ],
+      "examples": [
+        {"command": "nohup ./script.sh &", "description": "后台运行脚本忽略挂起"},
+        {"command": "nohup python server.py > output.log 2>&1 &", "description": "后台运行并重定向输出"}
+      ],
+      "scenarios": ["后台运行", "持久运行", "防止中断", "服务后台化"]
+    },
+    {
+      "name": "tar",
+      "description": "打包和解压工具",
+      "category": "archive",
+      "parameters": [
+        {"flag": "-c", "description": "创建归档"},
+        {"flag": "-x", "description": "解压归档"},
+        {"flag": "-v", "description": "显示详情"},
+        {"flag": "-f", "description": "指定文件名"},
+        {"flag": "-z", "description": "gzip压缩"},
+        {"flag": "-j", "description": "bzip2压缩"},
+        {"flag": "-C", "description": "指定解压目录"}
+      ],
+      "examples": [
+        {"command": "tar -czvf archive.tar.gz /path/", "description": "打包并压缩目录"},
+        {"command": "tar -xzvf archive.tar.gz -C /target/", "description": "解压到目标目录"},
+        {"command": "tar -tf archive.tar.gz", "description": "查看归档内容"}
+      ],
+      "scenarios": ["打包", "压缩", "解压", "备份", "tar.gz"]
+    },
+    {
+      "name": "gzip",
+      "description": "gzip压缩工具",
+      "category": "archive",
+      "parameters": [
+        {"flag": "-d", "description": "解压"},
+        {"flag": "-k", "description": "保留原文件"},
+        {"flag": "-v", "description": "显示压缩比"}
+      ],
+      "examples": [
+        {"command": "gzip file.txt", "description": "压缩文件"},
+        {"command": "gzip -d file.txt.gz", "description": "解压文件"}
+      ],
+      "scenarios": ["压缩文件", "gzip压缩", "解压gzip"]
+    },
+    {
+      "name": "gunzip",
+      "description": "解压gzip文件",
+      "category": "archive",
+      "parameters": [
+        {"flag": "-k", "description": "保留原文件"}
+      ],
+      "examples": [
+        {"command": "gunzip file.gz", "description": "解压gz文件"},
+        {"command": "gunzip -k file.gz", "description": "解压并保留原文件"}
+      ],
+      "scenarios": ["解压", "解压gzip", "解压缩"]
+    },
+    {
+      "name": "zip",
+      "description": "创建zip压缩包",
+      "category": "archive",
+      "parameters": [
+        {"flag": "-r", "description": "递归目录"},
+        {"flag": "-q", "description": "静默模式"}
+      ],
+      "examples": [
+        {"command": "zip -r archive.zip /path/", "description": "创建zip压缩包"},
+        {"command": "zip archive.zip file1.txt file2.txt", "description": "添加文件到zip"}
+      ],
+      "scenarios": ["创建zip", "zip压缩", "打包zip"]
+    },
+    {
+      "name": "unzip",
+      "description": "解压zip文件",
+      "category": "archive",
+      "parameters": [
+        {"flag": "-d", "description": "指定解压目录"},
+        {"flag": "-l", "description": "列出内容"},
+        {"flag": "-o", "description": "覆盖已存在文件"}
+      ],
+      "examples": [
+        {"command": "unzip archive.zip", "description": "解压zip文件"},
+        {"command": "unzip archive.zip -d /target/", "description": "解压到目标目录"},
+        {"command": "unzip -l archive.zip", "description": "列出zip内容"}
+      ],
+      "scenarios": ["解压zip", "解压缩", "查看zip内容"]
+    },
+    {
+      "name": "mount",
+      "description": "挂载文件系统",
+      "category": "disk",
+      "parameters": [
+        {"flag": "-t", "description": "指定文件系统类型"},
+        {"flag": "-o", "description": "挂载选项"}
+      ],
+      "examples": [
+        {"command": "mount /dev/sdb1 /mnt/usb", "description": "挂载USB设备"},
+        {"command": "mount -t nfs 192.168.1.100:/share /mnt/nfs", "description": "挂载NFS共享"}
+      ],
+      "scenarios": ["挂载", "挂载磁盘", "挂载NFS", "挂载USB"]
+    },
+    {
+      "name": "umount",
+      "description": "卸载文件系统",
+      "category": "disk",
+      "parameters": [
+        {"flag": "-f", "description": "强制卸载"},
+        {"flag": "-l", "description": "延迟卸载"}
+      ],
+      "examples": [
+        {"command": "umount /mnt/usb", "description": "卸载USB设备"},
+        {"command": "umount -l /mnt/nfs", "description": "延迟卸载NFS"}
+      ],
+      "scenarios": ["卸载", "卸载磁盘", "安全弹出"]
+    },
+    {
+      "name": "fdisk",
+      "description": "磁盘分区工具",
+      "category": "disk",
+      "parameters": [
+        {"flag": "-l", "description": "列出分区"},
+        {"flag": "-d", "description": "删除分区"}
+      ],
+      "examples": [
+        {"command": "fdisk -l", "description": "列出所有磁盘分区"},
+        {"command": "fdisk /dev/sdb", "description": "对磁盘进行分区"}
+      ],
+      "scenarios": ["磁盘分区", "查看分区", "分区管理"]
+    },
+    {
+      "name": "journalctl",
+      "description": "查询systemd日志",
+      "category": "system",
+      "parameters": [
+        {"flag": "-u", "description": "指定服务"},
+        {"flag": "-f", "description": "实时跟踪"},
+        {"flag": "-n", "description": "显示最近行数"},
+        {"flag": "--since", "description": "指定起始时间"},
+        {"flag": "--until", "description": "指定结束时间"},
+        {"flag": "-p", "description": "按优先级过滤"}
+      ],
+      "examples": [
+        {"command": "journalctl -u nginx.service", "description": "查看nginx服务日志"},
+        {"command": "journalctl -f", "description": "实时跟踪所有日志"},
+        {"command": "journalctl --since '1 hour ago'", "description": "查看最近1小时日志"}
+      ],
+      "scenarios": ["查看日志", "systemd日志", "服务日志", "日志分析"]
+    },
+    {
+      "name": "dmesg",
+      "description": "显示内核消息",
+      "category": "system",
+      "parameters": [
+        {"flag": "-T", "description": "人类可读时间"},
+        {"flag": "-w", "description": "实时跟踪"},
+        {"flag": "-l", "description": "过滤日志级别"}
+      ],
+      "examples": [
+        {"command": "dmesg | tail -50", "description": "查看最近内核消息"},
+        {"command": "dmesg -T", "description": "显示可读时间戳"},
+        {"command": "dmesg -w", "description": "实时跟踪内核消息"}
+      ],
+      "scenarios": ["内核日志", "系统启动", "硬件检测", "驱动问题"]
+    },
+    {
+      "name": "apt",
+      "description": "Debian/Ubuntu包管理器",
+      "category": "package",
+      "parameters": [
+        {"flag": "update", "description": "更新软件包列表"},
+        {"flag": "upgrade", "description": "升级软件包"},
+        {"flag": "install", "description": "安装软件包"},
+        {"flag": "remove", "description": "移除软件包"},
+        {"flag": "search", "description": "搜索软件包"}
+      ],
+      "examples": [
+        {"command": "apt update && apt upgrade", "description": "更新并升级所有包"},
+        {"command": "apt install nginx", "description": "安装nginx"},
+        {"command": "apt remove --purge nginx", "description": "完全卸载nginx"}
+      ],
+      "scenarios": ["安装软件", "更新系统", "卸载软件", "包管理"]
+    },
+    {
+      "name": "yum",
+      "description": "RedHat/CentOS包管理器",
+      "category": "package",
+      "parameters": [
+        {"flag": "install", "description": "安装软件包"},
+        {"flag": "update", "description": "更新软件包"},
+        {"flag": "remove", "description": "移除软件包"},
+        {"flag": "search", "description": "搜索软件包"},
+        {"flag": "list", "description": "列出软件包"}
+      ],
+      "examples": [
+        {"command": "yum update", "description": "更新所有软件包"},
+        {"command": "yum install nginx", "description": "安装nginx"},
+        {"command": "yum remove nginx", "description": "卸载nginx"}
+      ],
+      "scenarios": ["安装软件", "更新系统", "卸载软件", "包管理"]
+    },
+    {
+      "name": "dnf",
+      "description": "Fedora包管理器，是yum的下一代",
+      "category": "package",
+      "parameters": [
+        {"flag": "install", "description": "安装软件包"},
+        {"flag": "update", "description": "更新软件包"},
+        {"flag": "remove", "description": "移除软件包"},
+        {"flag": "search", "description": "搜索软件包"}
+      ],
+      "examples": [
+        {"command": "dnf install nginx", "description": "安装nginx"},
+        {"command": "dnf update", "description": "更新所有包"}
+      ],
+      "scenarios": ["安装软件", "更新系统", "卸载软件", "包管理"]
+    },
+    {
+      "name": "systemctl",
+      "description": "控制systemd系统和服务管理器",
+      "category": "system",
+      "parameters": [
+        {"flag": "start", "description": "启动服务"},
+        {"flag": "stop", "description": "停止服务"},
+        {"flag": "restart", "description": "重启服务"},
+        {"flag": "status", "description": "查看服务状态"},
+        {"flag": "enable", "description": "开机自启"},
+        {"flag": "disable", "description": "取消开机自启"},
+        {"flag": "reload", "description": "重新加载配置"}
+      ],
+      "examples": [
+        {"command": "systemctl status nginx", "description": "查看nginx状态"},
+        {"command": "systemctl restart nginx", "description": "重启nginx"},
+        {"command": "systemctl enable nginx", "description": "nginx开机自启"}
+      ],
+      "scenarios": ["服务管理", "启动服务", "停止服务", "重启服务", "开机自启"]
+    },
+    {
+      "name": "service",
+      "description": "运行System V init脚本",
+      "category": "system",
+      "parameters": [
+        {"flag": "start", "description": "启动服务"},
+        {"flag": "stop", "description": "停止服务"},
+        {"flag": "restart", "description": "重启服务"},
+        {"flag": "status", "description": "查看状态"}
+      ],
+      "examples": [
+        {"command": "service nginx start", "description": "启动nginx"},
+        {"command": "service nginx status", "description": "查看nginx状态"}
+      ],
+      "scenarios": ["服务管理", "旧式服务管理", "启动服务"]
+    },
+    {
+      "name": "useradd",
+      "description": "创建新用户",
+      "category": "system",
+      "parameters": [
+        {"flag": "-m", "description": "创建用户目录"},
+        {"flag": "-s", "description": "指定登录shell"},
+        {"flag": "-G", "description": "添加附加组"},
+        {"flag": "-d", "description": "指定主目录"}
+      ],
+      "examples": [
+        {"command": "useradd -m -s /bin/bash newuser", "description": "创建新用户"},
+        {"command": "useradd -m -G sudo,www-data developer", "description": "创建开发者用户"}
+      ],
+      "scenarios": ["创建用户", "添加用户", "新建账号"]
+    },
+    {
+      "name": "userdel",
+      "description": "删除用户",
+      "category": "system",
+      "parameters": [
+        {"flag": "-r", "description": "删除用户主目录"}
+      ],
+      "examples": [
+        {"command": "userdel olduser", "description": "删除用户保留目录"},
+        {"command": "userdel -r olduser", "description": "删除用户及主目录"}
+      ],
+      "scenarios": ["删除用户", "移除账号"]
+    },
+    {
+      "name": "usermod",
+      "description": "修改用户账户",
+      "category": "system",
+      "parameters": [
+        {"flag": "-aG", "description": "追加到附加组"},
+        {"flag": "-s", "description": "修改登录shell"},
+        {"flag": "-L", "description": "锁定账户"},
+        {"flag": "-U", "description": "解锁账户"}
+      ],
+      "examples": [
+        {"command": "usermod -aG sudo username", "description": "添加用户到sudo组"},
+        {"command": "usermod -s /bin/false username", "description": "修改用户shell"}
+      ],
+      "scenarios": ["修改用户", "用户组管理", "用户权限"]
+    },
+    {
+      "name": "passwd",
+      "description": "修改用户密码",
+      "category": "system",
+      "parameters": [
+        {"flag": "-l", "description": "锁定账户"},
+        {"flag": "-u", "description": "解锁账户"},
+        {"flag": "-d", "description": "删除密码"}
+      ],
+      "examples": [
+        {"command": "passwd username", "description": "修改用户密码"},
+        {"command": "passwd -l username", "description": "锁定用户账户"}
+      ],
+      "scenarios": ["修改密码", "设置密码", "锁定用户"]
+    },
+    {
+      "name": "groupadd",
+      "description": "创建新用户组",
+      "category": "system",
+      "parameters": [],
+      "examples": [
+        {"command": "groupadd developers", "description": "创建developers组"}
+      ],
+      "scenarios": ["创建用户组", "添加组"]
+    },
+    {
+      "name": "crontab",
+      "description": "管理定时任务",
+      "category": "system",
+      "parameters": [
+        {"flag": "-l", "description": "列出定时任务"},
+        {"flag": "-e", "description": "编辑定时任务"},
+        {"flag": "-r", "description": "删除所有任务"},
+        {"flag": "-u", "description": "指定用户"}
+      ],
+      "examples": [
+        {"command": "crontab -l", "description": "查看当前用户定时任务"},
+        {"command": "crontab -e", "description": "编辑定时任务"},
+        {"command": "crontab -e", "description": "添加: 0 5 * * * /backup.sh"}
+      ],
+      "scenarios": ["定时任务", "cron", "自动化", "计划任务"]
+    },
+    {
+      "name": "hostname",
+      "description": "显示或设置主机名",
+      "category": "system",
+      "parameters": [],
+      "examples": [
+        {"command": "hostname", "description": "显示主机名"},
+        {"command": "hostnamectl set-hostname newname", "description": "永久修改主机名"}
+      ],
+      "scenarios": ["查看主机名", "修改主机名"]
+    },
+    {
+      "name": "timedatectl",
+      "description": "控制系统时间和日期",
+      "category": "system",
+      "parameters": [
+        {"flag": "set-timezone", "description": "设置时区"},
+        {"flag": "set-ntp", "description": "启用禁用NTP"}
+      ],
+      "examples": [
+        {"command": "timedatectl status", "description": "查看时间状态"},
+        {"command": "timedatectl set-timezone Asia/Shanghai", "description": "设置时区"}
+      ],
+      "scenarios": ["时间管理", "时区设置", "NTP同步"]
+    },
+    {
+      "name": "ln",
+      "description": "创建链接",
+      "category": "file",
+      "parameters": [
+        {"flag": "-s", "description": "创建符号链接"},
+        {"flag": "-f", "description": "强制覆盖"},
+        {"flag": "-n", "description": "链接到目录而非其内容"}
+      ],
+      "examples": [
+        {"command": "ln -s /path/to/file linkname", "description": "创建符号链接"},
+        {"command": "ln -sf /new/path linkname", "description": "强制重新创建链接"}
+      ],
+      "scenarios": ["创建链接", "软链接", "快捷方式"]
+    },
+    {
+      "name": "readlink",
+      "description": "显示符号链接目标",
+      "category": "file",
+      "parameters": [
+        {"flag": "-f", "description": "递归解析最终目标"}
+      ],
+      "examples": [
+        {"command": "readlink /path/to/symlink", "description": "查看链接目标"},
+        {"command": "readlink -f /path/to/symlink", "description": "解析最终目标路径"}
+      ],
+      "scenarios": ["查看链接", "解析路径", "符号链接"]
+    },
+    {
+      "name": "xargs",
+      "description": "将输入转换为命令行参数",
+      "category": "text",
+      "parameters": [
+        {"flag": "-d", "description": "指定分隔符"},
+        {"flag": "-n", "description": "每行几个参数"},
+        {"flag": "-p", "description": "执行前确认"},
+        {"flag": "-0", "description": "使用null分隔"}
+      ],
+      "examples": [
+        {"command": "find . -name '*.txt' | xargs rm", "description": "删除所有txt文件"},
+        {"command": "cat files.txt | xargs -n 1 process.sh", "description": "逐行处理"},
+        {"command": "echo 'a b c' | xargs -n 1 echo", "description": "分行输出参数"}
+      ],
+      "scenarios": ["批量处理", "参数转换", "管道处理", "批量执行"]
+    },
+    {
+      "name": "tr",
+      "description": "字符转换和删除",
+      "category": "text",
+      "parameters": [],
+      "examples": [
+        {"command": "echo 'hello' | tr 'a-z' 'A-Z'", "description": "转换为大写"},
+        {"command": "cat file.txt | tr -d '[:space:]'", "description": "删除所有空白字符"}
+      ],
+      "scenarios": ["字符转换", "大小写转换", "删除字符"]
+    },
+    {
+      "name": "diff",
+      "description": "比较文件差异",
+      "category": "text",
+      "parameters": [
+        {"flag": "-u", "description": "统一格式输出"},
+        {"flag": "-r", "description": "递归比较目录"},
+        {"flag": "-i", "description": "忽略大小写"},
+        {"flag": "-w", "description": "忽略空白"}
+      ],
+      "examples": [
+        {"command": "diff file1.txt file2.txt", "description": "比较两个文件"},
+        {"command": "diff -u old.txt new.txt", "description": "统一格式比较"}
+      ],
+      "scenarios": ["比较文件", "文件差异", "代码对比", "补丁"]
+    },
+    {
+      "name": "md5sum",
+      "description": "计算和验证MD5校验和",
+      "category": "system",
+      "parameters": [],
+      "examples": [
+        {"command": "md5sum file.iso", "description": "计算文件MD5"},
+        {"command": "md5sum -c checksums.md5", "description": "验证MD5校验"}
+      ],
+      "scenarios": ["MD5校验", "文件完整性", "校验"]
+    },
+    {
+      "name": "sha256sum",
+      "description": "计算和验证SHA256校验和",
+      "category": "system",
+      "parameters": [],
+      "examples": [
+        {"command": "sha256sum file.iso", "description": "计算SHA256"},
+        {"command": "sha256sum -c checksums.sha256", "description": "验证SHA256"}
+      ],
+      "scenarios": ["SHA256校验", "文件完整性", "安全校验"]
+    }
+  ]
+}
