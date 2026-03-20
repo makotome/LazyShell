@@ -1,19 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { ChatMessage, AIResponse, TerminalContext, LearningDataEntry, BuiltinCommand } from '../types';
+import type { ChatMessage, AIResponse, TerminalContext, LearningDataEntry, BuiltinCommand, AICommandOption } from '../types';
 import { AIProviderManager } from '../providers/aiProvider';
 
 interface AIChatProps {
   providerManager: AIProviderManager;
   context: TerminalContext;
+  tabId: string;
   onCommandExecute: (command: string, naturalLanguage?: string) => void;
-  onCommandFill?: (command: string) => void;
   commandDb?: {
     search: (keyword: string) => Promise<BuiltinCommand[]>;
   };
 }
 
-export function AIChat({ providerManager, context, onCommandExecute, onCommandFill, commandDb }: AIChatProps) {
+export function AIChat({ providerManager, context, tabId, onCommandExecute, commandDb }: AIChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -25,6 +25,7 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<AIResponse | null>(null);
+  const [commandOptions, setCommandOptions] = useState<AICommandOption[]>([]);
   const [lastUserInput, setLastUserInput] = useState<string>('');
   const [learningData, setLearningData] = useState<LearningDataEntry[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -126,6 +127,7 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
     setLastUserInput(input);
     setInput('');
     setIsLoading(true);
+    setCommandOptions([]);
 
     try {
       let response: AIResponse | null = null;
@@ -140,6 +142,7 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
             command: match.name,
             explanation: `${match.description}。示例: ${match.examples[0]?.command || match.name}`,
             isDangerous: false,
+            intent: 'single',
           };
           source = '本地命令库';
         }
@@ -153,6 +156,7 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
             command: learnedCommand,
             explanation: '（来自历史学习）',
             isDangerous: false,
+            intent: 'single',
           };
           source = '历史学习';
         }
@@ -171,7 +175,7 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: 'ai',
-        content: `${response.explanation} [${source}]`,
+        content: `${response.explanation || ''} [${source}]`,
         command: response.command,
         explanation: response.explanation,
         isDangerous: response.isDangerous,
@@ -180,14 +184,20 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
 
       setMessages((prev) => [...prev, aiMessage]);
 
-      if (response.isDangerous) {
+      // Handle multiple options mode
+      if (response.options && response.options.length > 0) {
+        // Limit to 5 options max
+        setCommandOptions(response.options.slice(0, 5));
+      } else if (response.intent === 'clarification') {
+        // Clarification mode: show AI's question, don't execute
+        // Just display the clarification content
+      } else if (response.isDangerous) {
+        // Dangerous command: show warning + execute button
         setPendingCommand(response);
-      } else if (onCommandFill && response.command) {
-        // Fill command to terminal for user review
-        onCommandFill(response.command);
-      } else {
-        // Fallback to direct execution
-        onCommandExecute(response.command, input);
+      } else if (response.command) {
+        // Safe single command: auto-send to terminal directly via shell_input
+        invoke('shell_input', { tabId, data: response.command + '\r' })
+          .catch(err => console.error('Failed to execute command:', err));
       }
     } catch (error) {
       const errorMessage: ChatMessage = {
@@ -200,10 +210,10 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, providerManager, context, onCommandExecute, onCommandFill, commandDb, findLearningMatch]);
+  }, [input, isLoading, providerManager, context, onCommandExecute, tabId, commandDb, findLearningMatch]);
 
   const handleCommandConfirm = useCallback(() => {
-    if (pendingCommand) {
+    if (pendingCommand && pendingCommand.command) {
       onCommandExecute(pendingCommand.command, lastUserInput);
       setPendingCommand(null);
     }
@@ -219,6 +229,22 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
     };
     setMessages((prev) => [...prev, cancelMessage]);
   }, []);
+
+  const handleOptionExecute = useCallback((option: AICommandOption) => {
+    if (option.isDangerous) {
+      // Dangerous option also needs confirmation
+      setPendingCommand({
+        command: option.command,
+        explanation: option.description,
+        isDangerous: true,
+        intent: 'single',
+      });
+    } else {
+      invoke('shell_input', { tabId, data: option.command + '\r' })
+        .catch(err => console.error('Failed to execute command:', err));
+    }
+    setCommandOptions([]);
+  }, [tabId]);
 
   return (
     <div className="ai-chat">
@@ -260,6 +286,26 @@ export function AIChat({ providerManager, context, onCommandExecute, onCommandFi
                 取消
               </button>
             </div>
+          </div>
+        )}
+        {commandOptions.length > 0 && (
+          <div className="command-options">
+            <div className="options-header">请选择要执行的命令：</div>
+            {commandOptions.map((option, idx) => (
+              <div key={idx} className="command-option">
+                <div className="option-description">{option.description}</div>
+                <div className="option-command">
+                  <code>{option.command}</code>
+                  <button
+                    className={`btn ${option.isDangerous ? 'btn-danger' : 'btn-primary'}`}
+                    onClick={() => handleOptionExecute(option)}
+                  >
+                    执行
+                  </button>
+                </div>
+                {option.reason && <div className="option-reason">{option.reason}</div>}
+              </div>
+            ))}
           </div>
         )}
         <div ref={messagesEndRef} />

@@ -6,10 +6,24 @@ export interface AIProvider {
   complete(prompt: string, context: TerminalContext): Promise<AIResponse>;
 }
 
-export interface AIResponse {
+export interface AICommandOption {
   command: string;
-  explanation: string;
+  description: string;
   isDangerous: boolean;
+  reason?: string;
+}
+
+export interface AIResponse {
+  // Single command mode (backward compatible)
+  command?: string;
+  explanation?: string;
+  isDangerous?: boolean;
+
+  // Multiple options mode
+  options?: AICommandOption[];
+
+  // Intent: single (single command), multiple (multiple options), clarification (needs clarification)
+  intent: 'single' | 'multiple' | 'clarification';
 }
 
 export interface TerminalContext {

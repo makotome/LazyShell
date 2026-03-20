@@ -40,10 +40,20 @@ pub struct SessionState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AIResponse {
+pub struct AICommandOption {
     pub command: String,
-    pub explanation: String,
+    pub description: String,
     pub is_dangerous: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AIResponse {
+    pub command: Option<String>,
+    pub explanation: Option<String>,
+    pub is_dangerous: bool,
+    pub options: Option<Vec<AICommandOption>>,
+    pub intent: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -267,6 +277,50 @@ fn parse_ai_response(content: &str) -> Result<AIResponse, AIError> {
         if let Some(end) = content.rfind('}') {
             let json_str = &content[start..=end];
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
+                // Check if this is a clarification response (contains question marks or request for more info)
+                let is_clarification = content.contains('?')
+                    || content.contains("请告诉我")
+                    || content.contains("请提供")
+                    || content.contains("能否")
+                    || content.contains("具体是")
+                    || (content.contains("?") && content.to_lowercase().contains("which") || content.to_lowercase().contains("what"));
+
+                if is_clarification {
+                    return Ok(AIResponse {
+                        command: None,
+                        explanation: Some(content.to_string()),
+                        is_dangerous: false,
+                        options: None,
+                        intent: "clarification".to_string(),
+                    });
+                }
+
+                // Check if this is an array of options
+                if let Some(options_array) = parsed.get("options").and_then(|v| v.as_array()) {
+                    let parsed_options: Vec<AICommandOption> = options_array
+                        .iter()
+                        .filter_map(|opt| {
+                            Some(AICommandOption {
+                                command: opt.get("command")?.as_str()?.to_string(),
+                                description: opt.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                is_dangerous: opt.get("isDangerous").and_then(|v| v.as_bool()).unwrap_or(false),
+                                reason: opt.get("reason").and_then(|v| v.as_str()).map(String::from),
+                            })
+                        })
+                        .collect();
+
+                    if !parsed_options.is_empty() {
+                        return Ok(AIResponse {
+                            command: None,
+                            explanation: parsed.get("explanation").and_then(|v| v.as_str()).map(String::from),
+                            is_dangerous: false,
+                            options: Some(parsed_options),
+                            intent: "multiple".to_string(),
+                        });
+                    }
+                }
+
+                // Single command mode
                 let command = parsed
                     .get("command")
                     .and_then(|v| v.as_str())
@@ -283,12 +337,31 @@ fn parse_ai_response(content: &str) -> Result<AIResponse, AIError> {
                     .unwrap_or(false);
 
                 return Ok(AIResponse {
-                    command,
-                    explanation,
+                    command: Some(command),
+                    explanation: Some(explanation),
                     is_dangerous,
+                    options: None,
+                    intent: "single".to_string(),
                 });
             }
         }
+    }
+
+    // Check if response seems to be a clarification question
+    let is_clarification = content.contains('?')
+        || content.contains("请告诉我")
+        || content.contains("请提供")
+        || content.contains("能否")
+        || content.contains("具体是");
+
+    if is_clarification {
+        return Ok(AIResponse {
+            command: None,
+            explanation: Some(content.to_string()),
+            is_dangerous: false,
+            options: None,
+            intent: "clarification".to_string(),
+        });
     }
 
     // Fallback: try to extract command from code blocks
@@ -299,9 +372,11 @@ fn parse_ai_response(content: &str) -> Result<AIResponse, AIError> {
         .unwrap_or_else(|| content.trim().to_string());
 
     Ok(AIResponse {
-        command: command.clone(),
-        explanation: content.to_string(),
+        command: Some(command.clone()),
+        explanation: Some(content.to_string()),
         is_dangerous: is_dangerous_command(&command),
+        options: None,
+        intent: "single".to_string(),
     })
 }
 
