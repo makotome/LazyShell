@@ -18,8 +18,8 @@ LazyShell/
 │   ├── App.tsx                   # 主组件，状态管理中枢
 │   ├── components/               # React 组件
 │   │   ├── AIChat.tsx           # AI 对话面板
-│   │   ├── Terminal.tsx          # 基础终端组件 (xterm.js 轮询)
-│   │   ├── PtyTerminal.tsx       # PTY 会话终端组件 ⭐
+│   │   ├── Terminal.tsx          # 主终端组件 (xterm.js 顺序轮询 + PersistentShell) ⭐
+│   │   ├── PtyTerminal.tsx       # PTY 会话终端组件（未在 App.tsx 使用）
 │   │   ├── InteractiveTerminal.tsx
 │   │   ├── ServerList.tsx        # 服务器侧边栏
 │   │   ├── ServerStatus.tsx      # 服务器监控
@@ -153,8 +153,8 @@ npm run tauri:build  # 生产构建
 | `src-tauri/src/ai.rs` | AI API 代理 | ⭐⭐ |
 | `src-tauri/src/learning.rs` | 命令学习数据 | ⭐⭐ |
 | `src-tauri/src/commands_db.rs` | 内置命令数据库 | ⭐ |
-| `src/components/Terminal.tsx` | xterm.js 终端组件 | ⭐⭐⭐ |
-| `src/components/PtyTerminal.tsx` | PTY 会话终端 | ⭐⭐⭐ |
+| `src/components/Terminal.tsx` | xterm.js 主终端组件（顺序轮询 + PersistentShell） | ⭐⭐⭐ |
+| `src/components/PtyTerminal.tsx` | PTY 会话终端（未在 App.tsx 使用） | ⭐⭐ |
 | `src/components/InteractiveTerminal.tsx` | 交互式终端 | ⭐⭐ |
 | `src/components/AIChat.tsx` | AI 对话面板 | ⭐⭐ |
 | `src/components/ServerList.tsx` | 服务器列表 | ⭐⭐ |
@@ -183,10 +183,11 @@ npm run tauri:build  # 生产构建
 
 | 方案 | 组件 | 适用场景 |
 |------|------|---------|
-| 非 PTY (轮询) | Terminal.tsx | 简单命令执行 |
-| PTY (持久会话) | PtyTerminal.tsx | 交互式命令 (vim, nano, top) |
+| PersistentShell (顺序轮询) | Terminal.tsx | 主终端，支持 vim/nano 等交互式命令 |
+| PTY (持久会话) | PtyTerminal.tsx | 独立 PTY 通道（当前未在 App.tsx 中使用） |
 
-当前实现: Terminal.tsx 使用轮询模式，vim/nano 支持需确保 PTY 尺寸一致
+当前实现: App.tsx 使用 Terminal.tsx → `shell_input`/`shell_output` → `PersistentShell`
+PtyTerminal.tsx 使用独立的 `pty_input`/`pty_output` → `SSHConnection` 交互式通道
 
 ### AI Provider 上下文注入
 
@@ -203,22 +204,29 @@ npm run tauri:build  # 生产构建
 
 ## 终端配置
 
-### PTY 字符尺寸常量 ⭐ 关键
+### 终端尺寸同步 ⭐ 关键
 
-| 参数 | 值 | 位置 |
-|------|-----|------|
-| 字符宽度 | 8px | Terminal.tsx, ssh.rs |
-| 字符高度 | 15px | Terminal.tsx, ssh.rs |
+Terminal.tsx 使用 `xterm.rows` / `xterm.cols`（FitAddon 计算的实际值）同步给后端 PTY。
+**不要**使用手动计算的固定字符尺寸，必须以 xterm.js 的实际渲染尺寸为准。
 
-⚠️ **警告**: 前端 Terminal.tsx 和后端 ssh.rs 必须使用相同的 8x15 尺寸
-   修改此值会导致 vim/nano 等终端编辑器显示异常（光标错位、换行错误）
+后端 `ssh.rs` 中 `PersistentShell` 和 `SSHConnection` 使用 8x15 像素尺寸计算 PTY 像素参数（仅用于 `request_pty` 的像素维度参数，不影响行列数）。
+
+### 终端轮询架构 ⭐ 关键
+
+Terminal.tsx 使用**顺序 setTimeout 轮询**（非 setInterval）读取 `shell_output`：
+- 前一个 poll 完成后才调度下一个，防止并发竞态
+- 后端 `shell_output` 持有 `persistent_shells` Mutex 锁完成所有读取，保证原子性
+- `has_complete_escape()` 检查缓冲区**末尾**是否有不完整的转义序列
+
+⚠️ **警告**: 绝不要将轮询改回 `setInterval`，会导致 vim 等全屏应用的转义序列乱序，
+   表现为向上滚动时行号变化但内容不更新
 
 ### xterm.js 组件说明
 
 | 组件 | 用途 | 通信方式 |
 |------|------|---------|
-| Terminal.tsx | 基础终端 | 轮询 shell_output |
-| PtyTerminal.tsx | PTY 会话终端 | 直接 PTY 通道 |
+| Terminal.tsx | 主终端（vim/nano/交互式命令） | 顺序轮询 shell_output → PersistentShell |
+| PtyTerminal.tsx | PTY 会话终端（未在 App.tsx 使用） | 轮询 pty_output → SSHConnection |
 | InteractiveTerminal.tsx | 交互式终端 | 命令执行模式 |
 
 ### xterm.js 插件

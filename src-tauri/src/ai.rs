@@ -236,13 +236,37 @@ Rules:
 - For dangerous operations (rm -rf, shutdown, reboot, dd, mkfs, etc.), set isDangerous: true
 - Always explain the command in Chinese when user uses Chinese
 - Keep explanations concise (1-2 sentences)
-- If the request is ambiguous, ask for clarification
+- If the request could have multiple interpretations, ALWAYS provide multiple command options
+- NEVER ask for clarification - always provide all possible command options
+- Use "intent": "single" when the request is clear and unambiguous
+- Use "intent": "multiple" when the request could have multiple interpretations
 
-Response format (JSON):
+Response format for single command (JSON):
 {
+  "intent": "single",
   "command": "the exact shell command to execute",
   "explanation": "brief explanation in user's language",
   "isDangerous": true/false
+}
+
+Response format for multiple options (JSON):
+{
+  "intent": "multiple",
+  "explanation": "你的请求可能有多种解释，以下是可能的命令：",
+  "options": [
+    {
+      "command": "command1",
+      "description": "description of what this command does",
+      "isDangerous": true/false,
+      "reason": "when to use this command"
+    },
+    {
+      "command": "command2",
+      "description": "description of what this command does",
+      "isDangerous": true/false,
+      "reason": "when to use this command"
+    }
+  ]
 }"#
         .to_string()
 }

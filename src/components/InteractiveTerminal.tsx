@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { CommandHistory, ServerTab, ServerBanner } from '../types';
 
+interface ContextMenuState {
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
 interface InteractiveTerminalProps {
   history: CommandHistory[];
   currentOutput?: string;
@@ -31,6 +37,7 @@ export function InteractiveTerminal({
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isAwaitingInput, setIsAwaitingInput] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({ x: 0, y: 0, visible: false });
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -212,6 +219,27 @@ export function InteractiveTerminal({
       return;
     }
 
+    // Ctrl+Shift+C: copy selected text
+    if (key === 'C' && e.ctrlKey && e.shiftKey) {
+      e.preventDefault();
+      const selection = window.getSelection()?.toString() || '';
+      if (selection) {
+        navigator.clipboard.writeText(selection);
+      }
+      return;
+    }
+
+    // Ctrl+Shift+V: paste at cursor position
+    if (key === 'V' && e.ctrlKey && e.shiftKey) {
+      e.preventDefault();
+      navigator.clipboard.readText().then(text => {
+        const newBuffer = inputBuffer.slice(0, cursorPosition) + text + inputBuffer.slice(cursorPosition);
+        setInputBuffer(newBuffer);
+        setCursorPosition(cursorPosition + text.length);
+      });
+      return;
+    }
+
     // Backspace: delete character before cursor
     if (key === 'Backspace') {
       e.preventDefault();
@@ -254,6 +282,43 @@ export function InteractiveTerminal({
     // If change came from direct typing (not programmatic), reset cursor to end
     setCursorPosition(newValue.length);
   }, []);
+
+  // Context menu handlers
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, visible: true });
+  }, []);
+
+  const handleCopySelection = useCallback(async () => {
+    const selection = window.getSelection()?.toString() || '';
+    if (selection) {
+      await navigator.clipboard.writeText(selection);
+    }
+    setContextMenu(prev => ({ ...prev, visible: false }));
+  }, []);
+
+  const handlePasteSelection = useCallback(async () => {
+    const text = await navigator.clipboard.readText();
+    const newBuffer = inputBuffer.slice(0, cursorPosition) + text + inputBuffer.slice(cursorPosition);
+    setInputBuffer(newBuffer);
+    setCursorPosition(cursorPosition + text.length);
+    setContextMenu(prev => ({ ...prev, visible: false }));
+  }, [inputBuffer, cursorPosition]);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(prev => ({ ...prev, visible: false }));
+  }, []);
+
+  // Close context menu on click outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      if (contextMenu.visible) {
+        closeContextMenu();
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [contextMenu.visible, closeContextMenu]);
 
   // Expose method to fill command from AI
   useEffect(() => {
@@ -302,7 +367,7 @@ export function InteractiveTerminal({
       <div className="terminal-header">
         <span className="terminal-title">终端</span>
       </div>
-      <div className="terminal-content">
+      <div className="terminal-content" onClick={() => inputRef.current?.focus()} onContextMenu={handleContextMenu}>
         {welcomeBanner && (
           <div className="terminal-welcome-banner">
             <pre className="banner-os-info">{welcomeBanner.os_info}</pre>
@@ -374,6 +439,14 @@ export function InteractiveTerminal({
             </span>
           </span>
         </div>
+
+        {/* Context Menu */}
+        {contextMenu.visible && (
+          <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
+            <button onClick={handleCopySelection}>复制 (Copy)</button>
+            <button onClick={handlePasteSelection}>粘贴 (Paste)</button>
+          </div>
+        )}
       </div>
     </div>
   );
