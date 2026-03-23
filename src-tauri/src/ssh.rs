@@ -243,7 +243,7 @@ impl SSHConnection {
 
         let exit_code = channel.exit_status().map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
 
-        let is_dangerous = is_dangerous_command(command);
+        let is_dangerous = is_dangerous_command_public(command);
 
         Ok(CommandOutput {
             stdout: convert_escapes(stdout),
@@ -660,7 +660,7 @@ impl SSHConnectionManager {
             stdout: convert_escapes(stdout),
             stderr: convert_escapes(stderr),
             exit_code,
-            is_dangerous: is_dangerous_command(command),
+            is_dangerous: is_dangerous_command_public(command),
         })
     }
 }
@@ -838,7 +838,7 @@ impl PersistentShell {
     }
 }
 
-fn is_dangerous_command(command: &str) -> bool {
+pub fn is_dangerous_command_public(command: &str) -> bool {
     let dangerous_patterns = [
         "rm -rf",
         "rm -rf /",
@@ -866,7 +866,7 @@ fn is_dangerous_command(command: &str) -> bool {
 }
 
 pub fn check_dangerous_command(command: &str) -> bool {
-    is_dangerous_command(command)
+    is_dangerous_command_public(command)
 }
 
 #[cfg(test)]
@@ -875,7 +875,7 @@ mod tests {
 
     #[test]
     fn test_dangerous_detection() {
-        assert!(is_dangerous_command("rm -rf /tmp/test"));
+        assert!(is_dangerous_command_public("rm -rf /tmp/test"));
         assert!(is_dangerous_command("rm -rf /*"));
         assert!(is_dangerous_command("shutdown -h now"));
         assert!(is_dangerous_command("reboot"));

@@ -343,6 +343,304 @@ body {
   color: var(--text-muted);
 }
 
+/* AI Chat Tabs */
+.ai-chat-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.tab-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.tab-btn.history-toggle {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+/* AI Chat Content Layout */
+.ai-chat-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.ai-chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* History Panel */
+.ai-chat-history-panel {
+  width: 280px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.history-header button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+}
+
+.history-header button:hover {
+  color: var(--text-primary);
+}
+
+/* Command Option Cards */
+.command-options {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.command-option-card {
+  background: var(--bg-primary);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.command-option-card:last-child {
+  margin-bottom: 0;
+}
+
+.command-option-card.danger-high {
+  border-color: var(--danger);
+}
+
+.command-option-card.danger-low {
+  border-color: var(--border-color);
+}
+
+.option-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.danger-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.danger-badge.danger-high {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+}
+
+.danger-badge.danger-medium {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.danger-badge.danger-low {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.option-card-body {
+  margin-bottom: 8px;
+}
+
+.option-command {
+  display: block;
+  background: var(--bg-tertiary);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-primary);
+}
+
+.option-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* History Panel (in content area) */
+.history-panel,
+.commands-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.panel-header {
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state .hint {
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-item {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 12px;
+  border-left: 3px solid var(--border-color);
+}
+
+.history-item.danger-high {
+  border-left-color: var(--danger);
+}
+
+.history-item.danger-medium {
+  border-left-color: #fbbf24;
+}
+
+.history-item.danger-low {
+  border-left-color: #22c55e;
+}
+
+.history-item-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.history-role {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.history-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-content {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.history-command {
+  background: var(--bg-tertiary);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  margin-top: 8px;
+  color: var(--accent-primary);
+}
+
+/* Commands List */
+.commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.command-card-item {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.command-card-item.danger-high {
+  border-color: var(--danger);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.card-usage {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.card-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.card-command {
+  background: var(--bg-tertiary);
+  padding: 8px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.card-command code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-primary);
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Terminal */
 .terminal {
   display: flex;
@@ -636,6 +934,11 @@ body {
 
 .btn-danger {
   background: var(--danger);
+  color: white;
+}
+
+.btn-warning {
+  background: var(--warning);
   color: white;
 }
 
@@ -1519,4 +1822,74 @@ body {
 .terminal-xterm .xterm {
   height: 100%;
   padding: 8px;
+}
+
+/* Command Card */
+.command-card {
+  background: #252526;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border-left: 4px solid #0dbc79;
+}
+
+.command-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.command-card-icon {
+  font-size: 16px;
+}
+
+.command-card-category {
+  font-size: 12px;
+  color: #e4e4e4;
+  font-weight: 500;
+}
+
+.command-card-description {
+  font-size: 13px;
+  color: #cccccc;
+  flex: 1;
+}
+
+.command-card-body {
+  margin-bottom: 12px;
+}
+
+.command-card-command {
+  display: block;
+  background: #1e1e1e;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 13px;
+  color: #e4e4e4;
+  word-break: break-all;
+}
+
+.command-card-explanation {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #999;
+}
+
+.command-card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.command-card-footer {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #666;
+  text-align: right;
+}
+
+.command-card-stats {
+  opacity: 0.7;
 }

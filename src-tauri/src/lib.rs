@@ -4,6 +4,7 @@ mod crypto;
 mod ssh;
 mod ai;
 mod learning;
+mod memory;
 
 use commands::AppState;
 
@@ -43,6 +44,18 @@ pub fn run() {
             ai::call_ai,
             learning::save_learning_data,
             learning::load_learning_data,
+            memory::load_chat_history,
+            memory::save_chat_history,
+            memory::append_chat_entry,
+            memory::cleanup_chat_history,
+            memory::load_command_cards,
+            memory::save_command_cards,
+            memory::add_command_card,
+            memory::remove_command_card,
+            memory::update_card_usage,
+            memory::get_command_card,
+            memory::cleanup_server_memory,
+            memory::determine_command_danger_level,
             commands_db::load_commands_db,
             commands_db::search_commands,
             commands_db::get_command_suggestions,

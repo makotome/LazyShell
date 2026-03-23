@@ -398,6 +398,7 @@ function App() {
               providerManager={providerManager}
               context={terminalContext}
               tabId={activeTabId || ''}
+              serverId={activeTab?.serverId || ''}
               onCommandExecute={handleCommandSubmit}
               commandDb={{ search: searchCommands }}
             />

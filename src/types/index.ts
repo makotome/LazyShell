@@ -1,3 +1,7 @@
+export type DangerLevel = 'green' | 'yellow' | 'red';
+
+export type CommandCategory = 'file' | 'text' | 'system' | 'network' | 'process' | 'archive' | 'disk' | 'package' | 'other';
+
 export interface AIProvider {
   name: string;
   apiKey: string;
@@ -89,7 +93,32 @@ export interface ChatMessage {
   command?: string;
   explanation?: string;
   isDangerous?: boolean;
+  dangerLevel?: DangerLevel;
   timestamp: number;
+}
+
+export interface ChatHistoryEntry {
+  id: string;
+  serverId: string;
+  role: 'user' | 'ai';
+  content: string;
+  command?: string;
+  explanation?: string;
+  dangerLevel: DangerLevel;
+  timestamp: number;
+}
+
+export interface CommandCard {
+  id: string;
+  serverId: string;
+  naturalLanguage: string;
+  command: string;
+  description: string;
+  dangerLevel: DangerLevel;
+  category: CommandCategory;
+  usageCount: number;
+  createdAt: number;
+  lastUsed: number;
 }
 
 export interface LearningDataEntry {

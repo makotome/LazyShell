@@ -1,4 +1,5 @@
 use crate::crypto::{auth_file_exists, decrypt_server_config, encrypt_server_config, verify_password, setup_password};
+use crate::memory;
 use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, PersistentShell, ServerBanner, ServerConfig, SSHConnection, SSHConnectionManager};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -259,6 +260,9 @@ pub fn remove_server(
 
     std::fs::write(get_servers_file_path()?, &encrypted)
         .map_err(|e| e.to_string())?;
+
+    // Clean up memory files (chat history, command cards) for this server
+    let _ = memory::cleanup_server_memory(server_id.clone());
 
     Ok(())
 }
