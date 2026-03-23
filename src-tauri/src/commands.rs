@@ -1,5 +1,5 @@
 use crate::crypto::{auth_file_exists, decrypt_server_config, encrypt_server_config, verify_password, setup_password};
-use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, ServerBanner, ServerConfig, SSHConnection, SSHConnectionManager};
+use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, PersistentShell, ServerBanner, ServerConfig, SSHConnection, SSHConnectionManager};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
@@ -287,17 +287,27 @@ pub fn execute_command(
         });
     }
 
-    let connections = state.ssh_manager.list_connections();
-    let config = connections.iter()
-        .find(|c| c.id == request.server_id)
-        .ok_or("Server not found")?
-        .clone();
+    // Try to use pooled session first, fall back to new connection
+    let output = match state.ssh_manager.get_session(&request.server_id) {
+        Ok(session) => {
+            SSHConnectionManager::execute_with_session(&session, &request.command)
+                .map_err(|e| e.to_string())?
+        }
+        Err(_) => {
+            // Fallback: create new connection for this command
+            let connections = state.ssh_manager.list_connections();
+            let config = connections.iter()
+                .find(|c| c.id == request.server_id)
+                .ok_or("Server not found")?
+                .clone();
 
-    let mut conn = SSHConnection::new(config);
-    conn.connect().map_err(|e| e.to_string())?;
-
-    let output = conn.execute(&request.command).map_err(|e| e.to_string())?;
-    conn.disconnect();
+            let mut conn = SSHConnection::new(config);
+            conn.connect().map_err(|e| e.to_string())?;
+            let output = conn.execute(&request.command).map_err(|e| e.to_string())?;
+            conn.disconnect();
+            output
+        }
+    };
 
     Ok(CommandResult {
         success: true,
@@ -458,4 +468,268 @@ pub fn get_server_banner(
 
     let mut conn = SSHConnection::new(config);
     conn.get_banner().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn start_pty_session(
+    server_id: String,
+    rows: u16,
+    cols: u16,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let config = state.ssh_manager.get_config(&server_id).ok_or("Server not found")?;
+    let mut conn = SSHConnection::new(config);
+    conn.connect().map_err(|e| e.to_string())?;
+    conn.start_pty(rows, cols).map_err(|e| e.to_string())?;
+    state.ssh_manager.store_interactive_connection(server_id, conn)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn pty_input(server_id: String, data: String, state: State<AppState>) -> Result<(), String> {
+    let mut interactive = state.ssh_manager.interactive_connections_mut();
+    if let Some(conn) = interactive.iter_mut().find(|c| c.server_info().id == server_id) {
+        conn.write_pty(&data).map_err(|e| e.to_string())
+    } else {
+        Err("PTY session not found".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn pty_resize(server_id: String, rows: u16, cols: u16, state: State<AppState>) -> Result<(), String> {
+    let mut interactive = state.ssh_manager.interactive_connections_mut();
+    if let Some(conn) = interactive.iter_mut().find(|c| c.server_info().id == server_id) {
+        conn.resize_pty(rows, cols).map_err(|e| e.to_string())
+    } else {
+        Err("PTY session not found".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn pty_output(server_id: String, state: State<AppState>) -> Result<String, String> {
+    let mut interactive = state.ssh_manager.interactive_connections_mut();
+    if let Some(conn) = interactive.iter_mut().find(|c| c.server_info().id == server_id) {
+        let mut buf = [0u8; 8192];
+        match conn.read_pty(&mut buf) {
+            Ok(n) => Ok(String::from_utf8_lossy(&buf[..n]).to_string()),
+            Err(_) => Ok(String::new()),
+        }
+    } else {
+        Err("PTY session not found".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn close_pty_session(server_id: String, state: State<AppState>) -> Result<(), String> {
+    if let Some(mut conn) = state.ssh_manager.remove_interactive_connection(&server_id) {
+        conn.close_pty().map_err(|e| e.to_string())?;
+        conn.disconnect();
+    }
+    Ok(())
+}
+
+/// Create a persistent shell session for a tab
+#[tauri::command]
+pub fn create_shell_session(
+    server_id: String,
+    tab_id: String,
+    rows: u16,
+    cols: u16,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let config = state.ssh_manager.get_config(&server_id)
+        .ok_or("Server not found")?;
+
+    let shell = PersistentShell::new(config, rows, cols)
+        .map_err(|e| e.to_string())?;
+
+    state.ssh_manager.add_persistent_shell(tab_id, shell)
+        .map_err(|e| e.to_string())
+}
+
+/// Send input to shell
+#[tauri::command]
+pub fn shell_input(
+    tab_id: String,
+    data: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    eprintln!("[DEBUG shell_input] tab_id={}, data={:?}", tab_id, data);
+    state.ssh_manager.write_to_persistent_shell(&tab_id, &data)
+        .map_err(|e| e.to_string())
+}
+
+/// Check if the buffer's trailing bytes contain no incomplete escape sequence.
+/// Returns true if it's safe to flush the buffer (no partial escape at the end).
+fn has_complete_escape(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+
+    let bytes = s.as_bytes();
+
+    // Find the last ESC (0x1b) in the buffer
+    let last_esc = match bytes.iter().rposition(|&b| b == 0x1b) {
+        Some(pos) => pos,
+        None => return true, // No ESC at all — safe to flush
+    };
+
+    let tail = &bytes[last_esc..];
+    let tail_len = tail.len();
+
+    // Just a bare ESC at the end — incomplete
+    if tail_len == 1 {
+        return false;
+    }
+
+    let second = tail[1];
+
+    // ESC [ — CSI sequence
+    if second == b'[' {
+        // CSI final bytes are in range 0x40..=0x7E
+        // Parameter bytes are digits, semicolons, and intermediate bytes 0x20..=0x3F
+        for &b in tail.iter().skip(2) {
+            if (0x40..=0x7E).contains(&b) {
+                return true; // Found CSI final byte
+            }
+            if !((0x20..=0x3F).contains(&b)) {
+                return false; // Unexpected byte — treat as incomplete
+            }
+        }
+        return false; // No final byte found
+    }
+
+    // ESC O — SS3 sequence (needs exactly 1 more byte after 'O')
+    if second == b'O' {
+        return tail_len >= 3;
+    }
+
+    // ESC + single character in 0x40..=0x5F range — standard 2-byte escape sequences
+    // Includes: ESC M (Reverse Index), ESC D (Index), ESC E (Next Line),
+    //           ESC 7 / ESC 8 (save/restore cursor), ESC c (reset), etc.
+    if (0x40..=0x5F).contains(&second) {
+        return true; // Complete 2-byte sequence
+    }
+
+    // ESC followed by other characters — treat as complete
+    true
+}
+
+// Constants for shell reading
+const MAX_READ_ATTEMPTS: usize = 10;
+const ESCAPE_RETRY_COUNT: usize = 3;
+const ESCAPE_RETRY_DELAY_US: u64 = 500;
+
+/// Read shell output with proper escape sequence buffering
+#[tauri::command]
+pub fn shell_output(
+    tab_id: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let mut buf = [0u8; 8192];
+    let mut output = String::new();
+
+    // Hold the lock for the entire read cycle to prevent concurrent polls
+    // from interleaving reads and corrupting escape sequences
+    let mut shells = state.ssh_manager.persistent_shells_lock();
+    let shell = match shells.get_mut(&tab_id) {
+        Some(s) => s,
+        None => return Ok(String::new()),
+    };
+
+    // Read all available data in a tight loop
+    for _ in 0..MAX_READ_ATTEMPTS {
+        match shell.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                output.push_str(&String::from_utf8_lossy(&buf[..n]));
+            }
+            Err(_) => break,
+        }
+    }
+
+    // If data ends with an incomplete escape sequence, retry with delays
+    // to collect the rest of the sequence
+    if !output.is_empty() && !has_complete_escape(&output) {
+        for _ in 0..ESCAPE_RETRY_COUNT {
+            std::thread::sleep(std::time::Duration::from_micros(ESCAPE_RETRY_DELAY_US));
+            match shell.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    output.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    if has_complete_escape(&output) {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    Ok(output)
+}
+
+/// Check if shell is alive
+#[tauri::command]
+pub fn shell_is_alive(
+    tab_id: String,
+    state: State<AppState>,
+) -> Result<bool, String> {
+    Ok(state.ssh_manager.is_persistent_shell_alive(&tab_id))
+}
+
+/// Resize shell terminal
+#[tauri::command]
+pub fn shell_resize(
+    tab_id: String,
+    rows: u16,
+    cols: u16,
+    state: State<AppState>,
+) -> Result<(), String> {
+    state.ssh_manager.resize_persistent_shell(&tab_id, rows, cols)
+        .map_err(|e| e.to_string())
+}
+
+/// Reconnect shell session
+#[tauri::command]
+pub fn reconnect_shell(
+    tab_id: String,
+    rows: u16,
+    cols: u16,
+    state: State<AppState>,
+) -> Result<(), String> {
+    state.ssh_manager.reconnect_persistent_shell(&tab_id, rows, cols)
+        .map_err(|e| e.to_string())
+}
+
+/// Close shell session
+#[tauri::command]
+pub fn close_shell_session(
+    tab_id: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    state.ssh_manager.close_persistent_shell(&tab_id)
+        .map_err(|e| e.to_string())?;
+    state.ssh_manager.remove_persistent_shell(&tab_id);
+    Ok(())
+}
+
+/// List all active SSH sessions
+#[tauri::command]
+pub fn list_active_sessions(
+    state: State<AppState>,
+) -> Result<Vec<String>, String> {
+    Ok(state.ssh_manager.list_sessions())
+}
+
+/// Close a specific server's session
+#[tauri::command]
+pub fn close_server_session(
+    server_id: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    state.ssh_manager.close_session(&server_id)
+        .map(|_| ())
+        .ok_or("Session not found".to_string())
 }

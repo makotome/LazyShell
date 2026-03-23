@@ -70,7 +70,7 @@ pub struct ServerBanner {
 }
 
 pub struct SSHConnection {
-    session: Option<Session>,
+    session: Option<Arc<Mutex<Session>>>,
     server_config: ServerConfig,
     interactive_channel: Option<Channel>,
     is_pty_active: bool,
@@ -122,7 +122,7 @@ impl SSHConnection {
             return Err(SSHError::AuthFailed("Authentication failed".to_string()));
         }
 
-        self.session = Some(session);
+        self.session = Some(Arc::new(Mutex::new(session)));
         Ok(())
     }
 
@@ -194,8 +194,8 @@ impl SSHConnection {
     }
 
     fn get_hostname(&self) -> Result<String, SSHError> {
-        let session = self.session.as_ref().ok_or(SSHError::NotConnected)?;
-        let mut channel = session.channel_session()
+        let session_guard = self.session.as_ref().ok_or(SSHError::NotConnected)?.lock().unwrap();
+        let mut channel = session_guard.channel_session()
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
         channel.exec("hostname")
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
@@ -205,8 +205,8 @@ impl SSHConnection {
     }
 
     fn get_last_login(&self) -> Result<String, SSHError> {
-        let session = self.session.as_ref().ok_or(SSHError::NotConnected)?;
-        let mut channel = session.channel_session()
+        let session_guard = self.session.as_ref().ok_or(SSHError::NotConnected)?.lock().unwrap();
+        let mut channel = session_guard.channel_session()
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
         channel.exec("last -1 | head -1")
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
@@ -216,8 +216,8 @@ impl SSHConnection {
     }
 
     fn execute_ignore(&self, command: &str) -> Result<String, SSHError> {
-        let session = self.session.as_ref().ok_or(SSHError::NotConnected)?;
-        let mut channel = session.channel_session()
+        let session_guard = self.session.as_ref().ok_or(SSHError::NotConnected)?.lock().unwrap();
+        let mut channel = session_guard.channel_session()
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
         channel.exec(command)
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
@@ -227,9 +227,9 @@ impl SSHConnection {
     }
 
     pub fn execute(&self, command: &str) -> Result<CommandOutput, SSHError> {
-        let session = self.session.as_ref().ok_or(SSHError::NotConnected)?;
+        let session_guard = self.session.as_ref().ok_or(SSHError::NotConnected)?.lock().unwrap();
 
-        let mut channel = session.channel_session()
+        let mut channel = session_guard.channel_session()
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
 
         channel.exec(command)
@@ -267,11 +267,11 @@ impl SSHConnection {
 
     /// Start an interactive PTY session
     pub fn start_pty(&mut self, rows: u16, cols: u16) -> Result<(), SSHError> {
-        let session = self.session.as_ref().ok_or(SSHError::NotConnected)?;
+        let session_guard = self.session.as_ref().ok_or(SSHError::NotConnected)?.lock().unwrap();
 
         let term_env = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
 
-        let mut channel = session.channel_session()
+        let mut channel = session_guard.channel_session()
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
 
         channel.request_pty(
@@ -288,13 +288,23 @@ impl SSHConnection {
         Ok(())
     }
 
+    /// Helper method to calculate PTY pixel dimensions from character dimensions
+    fn pty_pixels(rows: u16, cols: u16) -> (u32, u32) {
+        // Using 8x15 as typical monospace character dimensions
+        ((cols as u32).saturating_mul(8), (rows as u32).saturating_mul(15))
+    }
+
     /// Write data to PTY input
     pub fn write_pty(&mut self, data: &str) -> Result<(), SSHError> {
+        eprintln!("[DEBUG] write_pty called with {} bytes: {:?}", data.len(), data.as_bytes());
         if let Some(ref mut channel) = self.interactive_channel {
             channel.write(data.as_bytes())
                 .map_err(|e: std::io::Error| SSHError::IoError(e.to_string()))?;
+            // Don't call flush in non-blocking mode - it can cause "would block" errors
+            eprintln!("[DEBUG] write_pty completed successfully");
             Ok(())
         } else {
+            eprintln!("[DEBUG] write_pty failed: interactive_channel is None");
             Err(SSHError::NotConnected)
         }
     }
@@ -302,17 +312,34 @@ impl SSHConnection {
     /// Read PTY output
     pub fn read_pty(&mut self, buf: &mut [u8]) -> Result<usize, SSHError> {
         if let Some(ref mut channel) = self.interactive_channel {
-            channel.read(buf).map_err(|e: std::io::Error| SSHError::IoError(e.to_string()))
+            match channel.read(buf) {
+                Ok(n) => {
+                    if n > 0 {
+                        eprintln!("[DEBUG] read_pty returned {} bytes: {:?}", n, &buf[..n]);
+                    }
+                    Ok(n)
+                }
+                Err(e) => {
+                    eprintln!("[DEBUG] read_pty error: {}", e);
+                    Err(SSHError::IoError(e.to_string()))
+                }
+            }
         } else {
             Ok(0)
         }
     }
 
     /// Resize PTY terminal
-    pub fn resize_pty(&mut self, _rows: u16, _cols: u16) -> Result<(), SSHError> {
-        // PTY resize is not directly supported via ssh2 Channel API
-        // This would require sending a window change signal through the session
-        // For now, we just acknowledge the request
+    pub fn resize_pty(&mut self, rows: u16, cols: u16) -> Result<(), SSHError> {
+        let (char_width, char_height) = Self::pty_pixels(rows, cols);
+        if let Some(ref mut channel) = self.interactive_channel {
+            channel.request_pty_size(
+                cols as u32,
+                rows as u32,
+                Some(char_width),
+                Some(char_height),
+            ).map_err(|e| SSHError::ExecutionFailed(e.to_string()))?;
+        }
         Ok(())
     }
 
@@ -335,13 +362,21 @@ impl SSHConnection {
         if self.is_pty_active {
             let _ = self.close_pty();
         }
-        if let Some(mut session) = self.session.take() {
+        if let Some(session_arc) = self.session.take() {
+            let mut session = session_arc.lock().unwrap();
             let _: Result<(), _> = session.disconnect(Some(DisconnectCode::ByApplication), "User disconnected", None);
         }
     }
 
     pub fn is_connected(&self) -> bool {
-        self.session.as_ref().map(|s| s.authenticated()).unwrap_or(false)
+        self.session.as_ref()
+            .map(|s| s.lock().unwrap().authenticated())
+            .unwrap_or(false)
+    }
+
+    /// Clone the session Arc for sharing across multiple connections
+    pub fn clone_session(&self) -> Option<Arc<Mutex<Session>>> {
+        self.session.as_ref().map(Arc::clone)
     }
 
     pub fn server_info(&self) -> &ServerConfig {
@@ -353,6 +388,7 @@ pub struct SSHConnectionManager {
     connections: Mutex<Vec<SSHConnection>>,
     interactive_connections: Mutex<Vec<SSHConnection>>,
     persistent_shells: Arc<Mutex<HashMap<String, PersistentShell>>>,
+    session_pool: Arc<Mutex<HashMap<String, Arc<Mutex<Session>>>>>,
 }
 
 impl SSHConnectionManager {
@@ -361,6 +397,7 @@ impl SSHConnectionManager {
             connections: Mutex::new(Vec::new()),
             interactive_connections: Mutex::new(Vec::new()),
             persistent_shells: Arc::new(Mutex::new(HashMap::new())),
+            session_pool: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -433,14 +470,54 @@ impl SSHConnectionManager {
         Ok(())
     }
 
-    /// Get a mutable reference to a persistent shell by ID
-    pub fn get_persistent_shell(&self, id: &str) -> Option<std::sync::MutexGuard<'_, HashMap<String, PersistentShell>>> {
-        let shells = self.persistent_shells.lock().ok()?;
-        if shells.contains_key(id) {
-            drop(shells);
-            Some(self.persistent_shells.lock().unwrap())
+    /// Get a direct lock on persistent shells for atomic multi-read operations
+    pub fn persistent_shells_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, PersistentShell>> {
+        self.persistent_shells.lock().unwrap()
+    }
+
+    /// Write data to a persistent shell
+    pub fn write_to_persistent_shell(&self, id: &str, data: &str) -> Result<(), SSHError> {
+        let mut shells = self.persistent_shells.lock().unwrap();
+        if let Some(shell) = shells.get_mut(id) {
+            shell.write(data)
         } else {
-            None
+            Err(SSHError::NotConnected)
+        }
+    }
+
+    /// Read data from a persistent shell
+    pub fn read_from_persistent_shell(&self, id: &str, buf: &mut [u8]) -> Result<usize, SSHError> {
+        let mut shells = self.persistent_shells.lock().unwrap();
+        if let Some(shell) = shells.get_mut(id) {
+            shell.read(buf)
+        } else {
+            Err(SSHError::NotConnected)
+        }
+    }
+
+    /// Check if a persistent shell is alive
+    pub fn is_persistent_shell_alive(&self, id: &str) -> bool {
+        let shells = self.persistent_shells.lock().unwrap();
+        shells.get(id).map(|s| s.is_alive()).unwrap_or(false)
+    }
+
+    /// Resize a persistent shell
+    pub fn resize_persistent_shell(&self, id: &str, rows: u16, cols: u16) -> Result<(), SSHError> {
+        let mut shells = self.persistent_shells.lock().unwrap();
+        if let Some(shell) = shells.get_mut(id) {
+            shell.resize(rows, cols)
+        } else {
+            Err(SSHError::NotConnected)
+        }
+    }
+
+    /// Close a persistent shell
+    pub fn close_persistent_shell(&self, id: &str) -> Result<(), SSHError> {
+        let mut shells = self.persistent_shells.lock().unwrap();
+        if let Some(shell) = shells.get_mut(id) {
+            shell.close()
+        } else {
+            Err(SSHError::NotConnected)
         }
     }
 
@@ -448,6 +525,16 @@ impl SSHConnectionManager {
     pub fn remove_persistent_shell(&self, id: &str) -> Option<PersistentShell> {
         let mut shells = self.persistent_shells.lock().unwrap();
         shells.remove(id)
+    }
+
+    /// Reconnect a persistent shell
+    pub fn reconnect_persistent_shell(&self, id: &str, rows: u16, cols: u16) -> Result<(), SSHError> {
+        let mut shells = self.persistent_shells.lock().unwrap();
+        if let Some(shell) = shells.get_mut(id) {
+            shell.reconnect(rows, cols)
+        } else {
+            Err(SSHError::NotConnected)
+        }
     }
 
     /// Check if a persistent shell exists for a server
@@ -461,6 +548,121 @@ impl SSHConnectionManager {
         let shells = self.persistent_shells.lock().unwrap();
         shells.keys().cloned().collect()
     }
+
+    /// Get or create a session for a server from the pool
+    pub fn get_session(&self, server_id: &str) -> Result<Arc<Mutex<Session>>, SSHError> {
+        // 1. Check if session exists and is connected
+        {
+            let pool = self.session_pool.lock().unwrap();
+            if let Some(session) = pool.get(server_id) {
+                if session.lock().unwrap().authenticated() {
+                    return Ok(Arc::clone(session));
+                }
+            }
+        }
+
+        // 2. Get server config
+        let config = {
+            let connections = self.connections.lock().unwrap();
+            connections.iter()
+                .find(|c| c.server_config.id == server_id)
+                .map(|c| c.server_config.clone())
+                .ok_or(SSHError::ConnectionFailed("Server not found".to_string()))?
+        };
+
+        // 3. Establish new session
+        let tcp = TcpStream::connect(format!("{}:{}", config.host, config.port))
+            .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
+
+        let mut session = Session::new().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
+        session.set_tcp_stream(tcp);
+        session.handshake().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
+
+        match &config.auth_method {
+            AuthMethod::Password { password } => {
+                session.userauth_password(&config.username, password)
+                    .map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
+            }
+            AuthMethod::PrivateKey { key_data, passphrase } => {
+                let mut temp_file = NamedTempFile::new()
+                    .map_err(|e| SSHError::IoError(e.to_string()))?;
+                temp_file.write_all(key_data.as_bytes())
+                    .map_err(|e| SSHError::IoError(e.to_string()))?;
+                temp_file.flush()
+                    .map_err(|e| SSHError::IoError(e.to_string()))?;
+
+                session.userauth_pubkey_file(
+                    &config.username,
+                    None,
+                    temp_file.path(),
+                    passphrase.as_deref(),
+                ).map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
+            }
+        }
+
+        if !session.authenticated() {
+            return Err(SSHError::AuthFailed("Authentication failed".to_string()));
+        }
+
+        // 4. Store in pool
+        let session_arc = Arc::new(Mutex::new(session));
+        let mut pool = self.session_pool.lock().unwrap();
+        pool.insert(server_id.to_string(), Arc::clone(&session_arc));
+
+        Ok(session_arc)
+    }
+
+    /// Close and remove a session from the pool
+    pub fn close_session(&self, server_id: &str) -> Option<Arc<Mutex<Session>>> {
+        let mut pool = self.session_pool.lock().unwrap();
+        if let Some(session_arc) = pool.remove(server_id) {
+            // Clone Arc so we can release the lock before returning
+            let session_arc_clone = Arc::clone(&session_arc);
+            drop(pool); // Release lock before disconnect
+            let mut session = session_arc_clone.lock().unwrap();
+            let _: Result<(), _> = session.disconnect(None, "Closing idle session", None);
+            Some(session_arc)
+        } else {
+            None
+        }
+    }
+
+    /// Check if a session exists in the pool
+    pub fn has_session(&self, server_id: &str) -> bool {
+        let pool = self.session_pool.lock().unwrap();
+        pool.contains_key(server_id)
+    }
+
+    /// List all active session server IDs
+    pub fn list_sessions(&self) -> Vec<String> {
+        let pool = self.session_pool.lock().unwrap();
+        pool.keys().cloned().collect()
+    }
+
+    /// Execute a command using a pooled session
+    pub fn execute_with_session(session: &Arc<Mutex<Session>>, command: &str) -> Result<CommandOutput, SSHError> {
+        let session_guard = session.lock().unwrap();
+        let mut channel = session_guard.channel_session()
+            .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
+
+        channel.exec(command)
+            .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
+
+        let mut stdout = String::new();
+        channel.read_to_string(&mut stdout).map_err(|e: std::io::Error| SSHError::ExecutionFailed(e.to_string()))?;
+
+        let mut stderr = String::new();
+        channel.stderr().read_to_string(&mut stderr).ok();
+
+        let exit_code = channel.exit_status().map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
+
+        Ok(CommandOutput {
+            stdout: convert_escapes(stdout),
+            stderr: convert_escapes(stderr),
+            exit_code,
+            is_dangerous: is_dangerous_command(command),
+        })
+    }
 }
 
 /// Persistent shell session that maintains a PTY connection
@@ -472,14 +674,14 @@ pub struct PersistentShell {
 }
 
 impl PersistentShell {
-    /// Create a new persistent shell session
-    pub fn new(server_config: ServerConfig, rows: u16, cols: u16) -> Result<Self, SSHError> {
+    /// Helper method to establish an authenticated session
+    fn establish_session(server_config: &ServerConfig) -> Result<Session, SSHError> {
         let tcp = TcpStream::connect(format!("{}:{}", server_config.host, server_config.port))
             .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
 
         let mut session = Session::new().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
         session.set_tcp_stream(tcp);
-        session.handshake().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
+        session.handshake().map_err(|e: ssh2::Error| SSHError::ConnectionFailed(e.to_string()))?;
 
         match &server_config.auth_method {
             AuthMethod::Password { password } => {
@@ -507,18 +709,45 @@ impl PersistentShell {
             return Err(SSHError::AuthFailed("Authentication failed".to_string()));
         }
 
+        Ok(session)
+    }
+
+    /// Helper method to calculate PTY pixel dimensions from character dimensions
+    fn pty_pixels(rows: u16, cols: u16) -> (u32, u32) {
+        // Using 8x15 as typical monospace character dimensions
+        ((cols as u32).saturating_mul(8), (rows as u32).saturating_mul(15))
+    }
+
+    /// Helper method to open a PTY channel on an existing session
+    fn open_pty_channel(session: &mut Session, rows: u16, cols: u16) -> Result<Channel, SSHError> {
         let term_env = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
         let mut channel = session.channel_session()
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
 
+        // Create empty PtyModes - the server default settings are usually sufficient
+        let pty_modes = ssh2::PtyModes::new();
+
+        let (char_width, char_height) = Self::pty_pixels(rows, cols);
         channel.request_pty(
             term_env.as_str(),
-            Some(ssh2::PtyModes::new()),
-            Some((cols as u32, rows as u32, 0, 0)),
+            Some(pty_modes),
+            Some((cols as u32, rows as u32, char_width, char_height)),
         ).map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
 
         channel.shell()
             .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
+
+        // Set session to non-blocking mode AFTER shell is started
+        // This must be done on the session, not the channel
+        session.set_blocking(false);
+
+        Ok(channel)
+    }
+
+    /// Create a new persistent shell session
+    pub fn new(server_config: ServerConfig, rows: u16, cols: u16) -> Result<Self, SSHError> {
+        let mut session = Self::establish_session(&server_config)?;
+        let channel = Self::open_pty_channel(&mut session, rows, cols)?;
 
         Ok(Self {
             session,
@@ -533,22 +762,29 @@ impl PersistentShell {
         if !self.pty_active {
             return Err(SSHError::NotConnected);
         }
+        // Write data to the channel
         self.channel.write(data.as_bytes())
             .map_err(|e| SSHError::IoError(e.to_string()))?;
+        // Don't call flush in non-blocking mode - it can cause "would block" errors
+        // The data will be flushed when the internal buffer is full or on next read
         Ok(())
     }
 
-    /// Read data from the PTY shell (non-blocking, returns empty if no data)
+    /// Read data from the PTY shell (non-blocking)
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, SSHError> {
         if !self.pty_active {
             return Err(SSHError::NotConnected);
         }
-        self.channel.read(buf).map_err(|e| SSHError::IoError(e.to_string()))
+        match self.channel.read(buf) {
+            Ok(n) => Ok(n),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
+            Err(e) => Err(SSHError::IoError(e.to_string())),
+        }
     }
 
     /// Check if the shell session is still alive
     pub fn is_alive(&self) -> bool {
-        self.pty_active && self.session.authenticated()
+        self.pty_active && !self.channel.eof()
     }
 
     /// Resize the PTY terminal
@@ -556,15 +792,9 @@ impl PersistentShell {
         if !self.pty_active {
             return Err(SSHError::NotConnected);
         }
-        // PTY resize via ssh2 Channel API requires sending window change signal
-        // The channel can be resized by requesting a new pty with updated dimensions
-        // For now, we use the channel's ability to handle resize requests
-        let term_env = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
-        self.channel.request_pty(
-            term_env.as_str(),
-            Some(ssh2::PtyModes::new()),
-            Some((cols as u32, rows as u32, 0, 0)),
-        ).map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
+        let (char_width, char_height) = Self::pty_pixels(rows, cols);
+        self.channel.request_pty_size(cols as u32, rows as u32, Some(char_width), Some(char_height))
+            .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
         Ok(())
     }
 
@@ -586,56 +816,15 @@ impl PersistentShell {
 
     /// Reconnect the session with the same config
     pub fn reconnect(&mut self, rows: u16, cols: u16) -> Result<(), SSHError> {
-        // Disconnect first if still connected
+        // Close old channel and disconnect old session before creating new ones
+        let _ = self.channel.close();
         if self.session.authenticated() {
             let _: Result<(), _> = self.session.disconnect(Some(DisconnectCode::ByApplication), "Reconnecting", None);
         }
 
-        let tcp = TcpStream::connect(format!("{}:{}", self.server_config.host, self.server_config.port))
-            .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-
-        let mut session = Session::new().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-        session.set_tcp_stream(tcp);
-        session.handshake().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-
-        match &self.server_config.auth_method {
-            AuthMethod::Password { password } => {
-                session.userauth_password(&self.server_config.username, password)
-                    .map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
-            AuthMethod::PrivateKey { key_data, passphrase } => {
-                let mut temp_file = NamedTempFile::new()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                temp_file.write_all(key_data.as_bytes())
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                temp_file.flush()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-
-                session.userauth_pubkey_file(
-                    &self.server_config.username,
-                    None,
-                    temp_file.path(),
-                    passphrase.as_deref(),
-                ).map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
-        }
-
-        if !session.authenticated() {
-            return Err(SSHError::AuthFailed("Authentication failed".to_string()));
-        }
-
-        let term_env = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
-        let mut channel = session.channel_session()
-            .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
-
-        channel.request_pty(
-            term_env.as_str(),
-            Some(ssh2::PtyModes::new()),
-            Some((cols as u32, rows as u32, 0, 0)),
-        ).map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
-
-        channel.shell()
-            .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
+        // Establish new session and channel using helper methods
+        let mut session = Self::establish_session(&self.server_config)?;
+        let channel = Self::open_pty_channel(&mut session, rows, cols)?;
 
         self.session = session;
         self.channel = channel;

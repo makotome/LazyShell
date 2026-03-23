@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { AIProviderManager, createProvider } from './providers/aiProvider';
 import { AIChat } from './components/AIChat';
-import { InteractiveTerminal } from './components/InteractiveTerminal';
+import { Terminal } from './components/Terminal';
 import { ServerList } from './components/ServerList';
 import { Settings } from './components/Settings';
 import { ProviderSelector } from './components/ProviderSelector';
@@ -22,7 +22,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [aiSectionWidth, setAiSectionWidth] = useState(350);
   const [isLocked, setIsLocked] = useState(true);
-  const [commandToFill, setCommandToFill] = useState<string>('');
+  const [shellSessions, setShellSessions] = useState<Record<string, boolean>>({});
   const isDraggingRef = useRef(false);
 
   // Command database hook
@@ -204,11 +204,7 @@ function App() {
     }
   }, []);
 
-  const handleCommandFill = useCallback((command: string) => {
-    setCommandToFill(command);
-  }, []);
-
-  const handleServerSelect = useCallback((serverId: string) => {
+  const handleServerSelect = useCallback(async (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
     if (!server) return;
 
@@ -227,10 +223,27 @@ function App() {
       currentDir: '/',
     };
 
-    setTabs(prev => [...prev, newTab]);
-    setActiveTabId(newTab.id);
-    setCommandHistoryMap(prev => ({ ...prev, [newTab.id]: [] }));
-    setCurrentOutputMap(prev => ({ ...prev, [newTab.id]: '' }));
+    // Create shell session for the new tab FIRST
+    const tabId = newTab.id;
+    try {
+      await invoke('create_shell_session', {
+        serverId: server.id,
+        tabId,
+        rows: 24,
+        cols: 80,
+      });
+
+      // Only add tab to state AFTER shell is created successfully
+      setTabs(prev => [...prev, newTab]);
+      setActiveTabId(newTab.id);
+      setCommandHistoryMap(prev => ({ ...prev, [newTab.id]: [] }));
+      setCurrentOutputMap(prev => ({ ...prev, [newTab.id]: '' }));
+      setShellSessions(prev => ({ ...prev, [tabId]: true }));
+    } catch (err) {
+      console.error('Failed to create shell session:', err);
+      // No orphaned tab since we didn't add it yet
+      return;
+    }
 
     // Fetch welcome banner for this server
     invoke<ServerBanner>('get_server_banner', { serverId })
@@ -251,6 +264,16 @@ function App() {
     if (tabs.length <= 1) return; // Keep at least one tab
 
     const tabIndex = tabs.findIndex(t => t.id === tabId);
+
+    // Close shell session for this tab
+    invoke('close_shell_session', { tabId }).catch(err => {
+      console.error('Failed to close shell session:', err);
+    });
+    setShellSessions(prev => {
+      const { [tabId]: _, ...rest } = prev;
+      return rest;
+    });
+
     setTabs(prev => prev.filter(t => t.id !== tabId));
 
     // Clean up state for closed tab
@@ -283,6 +306,15 @@ function App() {
   const handleCloseSettings = useCallback(() => {
     setShowSettings(false);
   }, []);
+
+  // Cleanup: Close all shell sessions on unmount
+  useEffect(() => {
+    return () => {
+      Object.keys(shellSessions).forEach(tabId => {
+        invoke('close_shell_session', { tabId }).catch(console.error);
+      });
+    };
+  }, [shellSessions]);
 
   // Drag handlers for AI section resize
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
@@ -354,24 +386,8 @@ function App() {
               />
             )}
             <div className="terminal-container">
-              {activeTab ? (
-                <InteractiveTerminal
-                  history={commandHistory}
-                  currentOutput={currentOutput}
-                  serverTab={activeTab}
-                  serverUsername={servers.find(s => s.id === activeTab.serverId)?.username}
-                  serverHostname={activeTab ? serverHostnameMap[activeTab.id] : undefined}
-                  commandToFill={commandToFill}
-                  welcomeBanner={activeTab ? welcomeBannerMap[activeTab.id] : undefined}
-                  onCommandSubmit={handleCommandSubmit}
-                  onCommandComplete={handleCommandComplete}
-                  onCommandFill={handleCommandFill}
-                />
-              ) : (
-                <div className="terminal-empty">
-                  <p>请从左侧选择一个服务器开始</p>
-                  <p className="hint">或者点击 + 新建标签页</p>
-                </div>
+              {activeTabId && (
+                <Terminal tabId={activeTabId} />
               )}
             </div>
           </div>
@@ -381,8 +397,8 @@ function App() {
             <AIChat
               providerManager={providerManager}
               context={terminalContext}
+              tabId={activeTabId || ''}
               onCommandExecute={handleCommandSubmit}
-              onCommandFill={handleCommandFill}
               commandDb={{ search: searchCommands }}
             />
           </div>
