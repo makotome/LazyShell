@@ -249,12 +249,45 @@ export function AIChat({ providerManager, context, tabId, serverId, onCommandExe
     }
   }, [input, isLoading, providerManager, context, onCommandExecute, tabId, commandDb, findLearningMatch]);
 
-  const handleCommandConfirm = useCallback(() => {
+  const handleCommandConfirm = useCallback(async () => {
     if (pendingCommand && pendingCommand.command) {
-      onCommandExecute(pendingCommand.command, lastUserInput);
+      const command = pendingCommand.command;
+      const explanation = pendingCommand.explanation || '';
+
+      // Execute the command
+      onCommandExecute(command, lastUserInput);
+
+      // Add to messages for persistence in chat
+      const dangerLevel = await getDangerLevel(command);
+      const executedMessage: ChatMessage = {
+        id: `executed-${Date.now()}`,
+        role: 'ai',
+        content: `执行命令: ${explanation}`,
+        command: command,
+        explanation: explanation,
+        isDangerous: true,
+        dangerLevel,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, executedMessage]);
+
+      // Save to chat history
+      try {
+        await appendChatEntry({
+          serverId,
+          role: 'ai',
+          content: `执行命令: ${explanation}`,
+          command: command,
+          explanation: explanation,
+          dangerLevel,
+        });
+      } catch (err) {
+        console.error('Failed to save chat history:', err);
+      }
+
       setPendingCommand(null);
     }
-  }, [pendingCommand, onCommandExecute, lastUserInput]);
+  }, [pendingCommand, onCommandExecute, lastUserInput, serverId, getDangerLevel, appendChatEntry]);
 
   const handleCommandCancel = useCallback(() => {
     setPendingCommand(null);
@@ -267,7 +300,7 @@ export function AIChat({ providerManager, context, tabId, serverId, onCommandExe
     setMessages((prev) => [...prev, cancelMessage]);
   }, []);
 
-  const handleOptionExecute = useCallback((option: AICommandOption) => {
+  const handleOptionExecute = useCallback(async (option: AICommandOption) => {
     if (option.isDangerous) {
       // Dangerous option also needs confirmation
       setPendingCommand({
@@ -276,12 +309,46 @@ export function AIChat({ providerManager, context, tabId, serverId, onCommandExe
         isDangerous: true,
         intent: 'single',
       });
-    } else {
-      invoke('shell_input', { tabId, data: option.command + '\r' })
-        .catch(err => console.error('Failed to execute command:', err));
+      return;
     }
+
+    // Execute the command
+    invoke('shell_input', { tabId, data: option.command + '\r' })
+      .catch(err => console.error('Failed to execute command:', err));
+
+    // Get danger level and add to chat history
+    const dangerLevel = await getDangerLevel(option.command);
+
+    // Add executed command as a message to persist in chat
+    const executedMessage: ChatMessage = {
+      id: `executed-${Date.now()}`,
+      role: 'ai',
+      content: `执行命令: ${option.description}`,
+      command: option.command,
+      explanation: option.description,
+      isDangerous: option.isDangerous,
+      dangerLevel,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, executedMessage]);
+
+    // Save to chat history
+    try {
+      await appendChatEntry({
+        serverId,
+        role: 'ai',
+        content: `执行命令: ${option.description}`,
+        command: option.command,
+        explanation: option.description,
+        dangerLevel,
+      });
+    } catch (err) {
+      console.error('Failed to save chat history:', err);
+    }
+
+    // Clear command options after execution
     setCommandOptions([]);
-  }, [tabId]);
+  }, [tabId, serverId, getDangerLevel, appendChatEntry]);
 
   const handleAddToFavorites = useCallback(async (option: AICommandOption) => {
     try {
