@@ -7,13 +7,13 @@ interface UseMemoryOptions {
 }
 
 interface ChatHistoryFile {
-  server_id: string;
+  serverId: string;
   entries: ChatHistoryEntry[];
   version: string;
 }
 
 interface CommandCardFile {
-  server_id: string;
+  serverId: string;
   cards: CommandCard[];
   version: string;
 }
@@ -23,6 +23,7 @@ export function useMemory({ serverId }: UseMemoryOptions) {
   const [commandCards, setCommandCards] = useState<CommandCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
 
   // Load chat history
   const loadChatHistory = useCallback(async (offset = 0, limit = 50) => {
@@ -33,6 +34,7 @@ export function useMemory({ serverId }: UseMemoryOptions) {
         limit,
       });
       setChatHistory(prev => offset === 0 ? result.entries : [...prev, ...result.entries]);
+      setHasMoreHistory(result.entries.length >= limit);
       return result;
     } catch (err) {
       console.error('Failed to load chat history:', err);
@@ -94,6 +96,20 @@ export function useMemory({ serverId }: UseMemoryOptions) {
     }
   }, [serverId]);
 
+  const updateCommandCard = useCallback(async (card: CommandCard) => {
+    try {
+      await invoke('update_command_card', { card });
+      setCommandCards(prev => prev.map(existing => (
+        existing.id === card.id ? { ...card } : existing
+      )));
+      return card;
+    } catch (err) {
+      console.error('Failed to update command card:', err);
+      setError(String(err));
+      throw err;
+    }
+  }, []);
+
   // Remove command card
   const removeCommandCard = useCallback(async (cardId: string) => {
     try {
@@ -153,10 +169,12 @@ export function useMemory({ serverId }: UseMemoryOptions) {
     commandCards,
     isLoading,
     error,
+    hasMoreHistory,
     loadChatHistory,
     appendChatEntry,
     loadCommandCards,
     addCommandCard,
+    updateCommandCard,
     removeCommandCard,
     updateCardUsage,
     getDangerLevel,

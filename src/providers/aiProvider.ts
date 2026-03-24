@@ -3,12 +3,17 @@ import { invoke } from '@tauri-apps/api/core';
 
 export type ProviderType = 'minimax' | 'openai' | 'anthropic';
 
-interface ProviderConfig {
+export interface ProviderConfig {
   type: ProviderType;
   name: string;
   apiKey: string;
   baseUrl?: string;
   model: string;
+}
+
+export interface ManagedProviderInfo extends ProviderConfig {
+  id: string;
+  isActive: boolean;
 }
 
 const PROVIDER_DEFAULTS: Record<ProviderType, { baseUrl: string; model: string }> = {
@@ -30,6 +35,7 @@ export function createProvider(config: ProviderConfig): AIProvider {
   const defaults = PROVIDER_DEFAULTS[config.type];
 
   return {
+    type: config.type,
     name: config.name,
     apiKey: config.apiKey,
     baseUrl: config.baseUrl || defaults.baseUrl,
@@ -37,22 +43,30 @@ export function createProvider(config: ProviderConfig): AIProvider {
     complete: async (prompt: string, context: TerminalContext): Promise<AIResponse> => {
       return invoke<AIResponse>('call_ai', {
         params: {
-          api_key: config.apiKey,
-          base_url: config.baseUrl || defaults.baseUrl,
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl || defaults.baseUrl,
           model: config.model || defaults.model,
           prompt,
           context: {
-            current_dir: context.currentDir,
-            recent_commands: context.recentCommands.map(cmd => ({
+            currentDir: context.currentDir,
+            recentCommands: context.recentCommands.map(cmd => ({
               command: cmd.command,
               output: cmd.output,
-              exit_code: cmd.exitCode,
+              exitCode: cmd.exitCode,
               timestamp: cmd.timestamp,
             })),
-            session_state: {
-              connected_server: context.sessionState.connectedServer,
-              is_connected: context.sessionState.isConnected,
+            sessionState: {
+              connectedServer: context.sessionState.connectedServer,
+              isConnected: context.sessionState.isConnected,
             },
+            memoryContext: context.memoryContext ? {
+              frequentCommands: context.memoryContext.frequentCommands.map(c => ({
+                command: c.command,
+                description: c.description,
+                usageCount: c.usageCount,
+              })),
+              recentChatSummary: context.memoryContext.recentChatSummary,
+            } : null,
           },
         },
       });
@@ -97,11 +111,14 @@ export class AIProviderManager {
     return Array.from(this.providers.entries()).map(([id, p]) => ({ id, name: p.name }));
   }
 
-  getProviders(): Array<{ id: string; name: string; type: ProviderType; isActive: boolean }> {
+  getProviders(): ManagedProviderInfo[] {
     return Array.from(this.providers.entries()).map(([id, p]) => ({
       id,
       name: p.name,
-      type: (p as unknown as { type: ProviderType }).type,
+      type: p.type,
+      apiKey: p.apiKey,
+      baseUrl: p.baseUrl,
+      model: p.model,
       isActive: id === this.activeProviderId,
     }));
   }

@@ -41,6 +41,16 @@ pub struct AddServerRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct EditServerRequest {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_method: AuthMethodInput,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum AuthMethodInput {
     Password { password: String },
@@ -212,6 +222,70 @@ pub fn add_server(
         .map_err(|e| e.to_string())?;
 
     state.ssh_manager.add_connection(config).map_err(|e| e.to_string())?;
+
+    Ok(server_info)
+}
+
+#[tauri::command]
+pub fn update_server(
+    request: EditServerRequest,
+    state: State<AppState>,
+) -> Result<ServerInfo, String> {
+    // Check if unlocked
+    let is_unlocked = {
+        let unlocked = state.is_unlocked.lock().map_err(|e| e.to_string())?;
+        *unlocked
+    };
+
+    if !is_unlocked {
+        return Err("App is locked. Please unlock first.".to_string());
+    }
+
+    let mp = state.master_password.lock().map_err(|e| e.to_string())?;
+    let password = mp.as_ref().ok_or("Master password not set")?;
+
+    // Load existing servers
+    let mut all_configs = load_servers_from_disk(password)?;
+
+    // Find and update the server
+    let server_id = request.id.clone();
+    let config_idx = all_configs.iter().position(|c| c.id == server_id)
+        .ok_or_else(|| "Server not found".to_string())?;
+
+    let auth_method = match request.auth_method {
+        AuthMethodInput::Password { password: p } => AuthMethod::Password { password: p },
+        AuthMethodInput::PrivateKey { key_data, passphrase } => {
+            AuthMethod::PrivateKey { key_data, passphrase }
+        }
+    };
+
+    // Update the config while preserving the ID
+    let old_config = &all_configs[config_idx];
+    let updated_config = ServerConfig {
+        id: old_config.id.clone(),
+        name: request.name,
+        host: request.host,
+        port: request.port,
+        username: request.username,
+        auth_method,
+    };
+
+    all_configs[config_idx] = updated_config.clone();
+    let server_info = ServerInfo::from(&updated_config);
+
+    // Encrypt and save to disk
+    let encrypted = encrypt_server_config(&all_configs, password)
+        .map_err(|e| e.to_string())?;
+
+    let mut servers = state.encrypted_servers.lock().map_err(|e| e.to_string())?;
+    *servers = encrypted.clone();
+
+    // Save to disk
+    std::fs::write(get_servers_file_path()?, &encrypted)
+        .map_err(|e| e.to_string())?;
+
+    // Update SSH manager with new config
+    state.ssh_manager.update_connection(updated_config).map_err(|e| e.to_string())?;
 
     Ok(server_info)
 }
@@ -542,6 +616,12 @@ pub fn create_shell_session(
     cols: u16,
     state: State<AppState>,
 ) -> Result<(), String> {
+    if state.ssh_manager.has_persistent_shell(&tab_id)
+        && state.ssh_manager.is_persistent_shell_alive(&tab_id)
+    {
+        return Ok(());
+    }
+
     let config = state.ssh_manager.get_config(&server_id)
         .ok_or("Server not found")?;
 
@@ -713,9 +793,10 @@ pub fn close_shell_session(
     tab_id: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    state.ssh_manager.close_persistent_shell(&tab_id)
-        .map_err(|e| e.to_string())?;
-    state.ssh_manager.remove_persistent_shell(&tab_id);
+    if let Some(mut shell) = state.ssh_manager.remove_persistent_shell(&tab_id) {
+        let _ = shell.close();
+        shell.disconnect();
+    }
     Ok(())
 }
 

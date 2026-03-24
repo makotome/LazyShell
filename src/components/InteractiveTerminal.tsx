@@ -20,6 +20,10 @@ interface InteractiveTerminalProps {
   onCommandComplete?: (partial: string) => Promise<string[]>;
 }
 
+// Legacy UI terminal path.
+// This component renders a command-line style interface in the frontend,
+// but the current application mainline uses Terminal.tsx with a real xterm session.
+
 export function InteractiveTerminal({
   history,
   currentOutput,
@@ -36,7 +40,6 @@ export function InteractiveTerminal({
   const [cursorPosition, setCursorPosition] = useState(0);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [isAwaitingInput, setIsAwaitingInput] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ x: 0, y: 0, visible: false });
 
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -181,8 +184,6 @@ export function InteractiveTerminal({
             setInputBuffer(suggestions[0]);
             setCursorPosition(suggestions[0].length);
           } else if (suggestions.length > 1) {
-            // Could show suggestion list - for now just keep partial
-            const partial = inputBuffer + ' ';
             const commonPrefix = suggestions.reduce((prefix, s) => {
               while (!s.startsWith(prefix)) {
                 prefix = prefix.slice(0, -1);

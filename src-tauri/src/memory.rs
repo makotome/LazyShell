@@ -11,13 +11,16 @@ use crate::ssh::is_dangerous_command_public;
 
 pub const MAX_CHAT_ENTRIES: usize = 1000;
 pub const MAX_COMMAND_CARDS: usize = 500;
+pub const MAX_COMMAND_HISTORY_ENTRIES: usize = 1000;
 pub const MAX_FILE_SIZE_BYTES: usize = 5 * 1024 * 1024; // 5MB
+pub const MAX_COMMAND_OUTPUT_CHARS: usize = 4000;
 
 // ============================================================================
 // Enums
 // ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum DangerLevel {
     Green,
     Yellow,
@@ -43,6 +46,7 @@ impl DangerLevel {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum CommandCategory {
     File,
     Text,
@@ -90,6 +94,16 @@ impl CommandCategory {
 // ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatHistoryOption {
+    pub command: String,
+    pub description: String,
+    pub is_dangerous: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatHistoryEntry {
     pub id: String,
     pub server_id: String,
@@ -98,10 +112,12 @@ pub struct ChatHistoryEntry {
     pub command: Option<String>,
     pub explanation: Option<String>,
     pub danger_level: Option<String>,
+    pub options: Option<Vec<ChatHistoryOption>>,
     pub timestamp: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatHistoryFile {
     pub server_id: String,
     pub entries: Vec<ChatHistoryEntry>,
@@ -109,6 +125,25 @@ pub struct ChatHistoryFile {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandHistoryEntry {
+    pub command: String,
+    pub output: String,
+    pub exit_code: i32,
+    pub timestamp: u64,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandHistoryFile {
+    pub server_id: String,
+    pub entries: Vec<CommandHistoryEntry>,
+    pub version: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandCard {
     pub id: String,
     pub server_id: String,
@@ -123,6 +158,7 @@ pub struct CommandCard {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandCardFile {
     pub server_id: String,
     pub cards: Vec<CommandCard>,
@@ -158,6 +194,12 @@ pub fn get_command_cards_path(server_id: &str) -> Result<PathBuf, String> {
     let memory_dir = get_memory_dir()?;
     let sanitized = sanitize_server_id(server_id);
     Ok(memory_dir.join(format!("{}_cards.json", sanitized)))
+}
+
+pub fn get_command_history_path(server_id: &str) -> Result<PathBuf, String> {
+    let memory_dir = get_memory_dir()?;
+    let sanitized = sanitize_server_id(server_id);
+    Ok(memory_dir.join(format!("{}_commands.json", sanitized)))
 }
 
 pub fn atomic_write_json<T: Serialize>(path: &PathBuf, data: &T) -> Result<(), String> {
@@ -211,6 +253,20 @@ fn get_current_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+fn truncate_text(input: &str, max_chars: usize) -> String {
+    let truncated: String = input.chars().take(max_chars).collect();
+    if input.chars().count() > max_chars {
+        format!("{}\n\n[output truncated]", truncated)
+    } else {
+        truncated
+    }
+}
+
+fn normalize_command_history_entry(mut entry: CommandHistoryEntry) -> CommandHistoryEntry {
+    entry.output = truncate_text(&entry.output, MAX_COMMAND_OUTPUT_CHARS);
+    entry
 }
 
 // ============================================================================
@@ -338,6 +394,108 @@ pub fn cleanup_chat_history(server_id: String, keep_last: u32) -> Result<(), Str
 }
 
 #[tauri::command]
+pub fn load_command_history(server_id: String) -> Result<CommandHistoryFile, String> {
+    let path = get_command_history_path(&server_id)?;
+
+    if !path.exists() {
+        return Ok(CommandHistoryFile {
+            server_id: server_id.clone(),
+            entries: Vec::new(),
+            version: "1.0".to_string(),
+        });
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    if content.trim().is_empty() {
+        return Ok(CommandHistoryFile {
+            server_id: server_id.clone(),
+            entries: Vec::new(),
+            version: "1.0".to_string(),
+        });
+    }
+
+    let history_file: CommandHistoryFile = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(history_file)
+}
+
+#[tauri::command]
+pub fn save_command_history(server_id: String, entries: Vec<CommandHistoryEntry>) -> Result<(), String> {
+    let normalized_entries = entries.into_iter().map(normalize_command_history_entry).collect::<Vec<_>>();
+
+    let entries_to_save = if normalized_entries.len() > MAX_COMMAND_HISTORY_ENTRIES {
+        normalized_entries.into_iter().rev().take(MAX_COMMAND_HISTORY_ENTRIES).rev().collect()
+    } else {
+        normalized_entries
+    };
+
+    let history_file = CommandHistoryFile {
+        server_id: server_id.clone(),
+        entries: entries_to_save,
+        version: "1.0".to_string(),
+    };
+
+    let path = get_command_history_path(&server_id)?;
+    atomic_write_json(&path, &history_file)
+}
+
+#[tauri::command]
+pub fn append_command_history(server_id: String, entry: CommandHistoryEntry) -> Result<(), String> {
+    let path = get_command_history_path(&server_id)?;
+
+    let mut history_file = if path.exists() {
+        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        if content.trim().is_empty() {
+            CommandHistoryFile {
+                server_id: server_id.clone(),
+                entries: Vec::new(),
+                version: "1.0".to_string(),
+            }
+        } else {
+            serde_json::from_str(&content).map_err(|e| e.to_string())?
+        }
+    } else {
+        CommandHistoryFile {
+            server_id: server_id.clone(),
+            entries: Vec::new(),
+            version: "1.0".to_string(),
+        }
+    };
+
+    history_file.entries.push(normalize_command_history_entry(entry));
+
+    if history_file.entries.len() > MAX_COMMAND_HISTORY_ENTRIES {
+        let excess = history_file.entries.len() - MAX_COMMAND_HISTORY_ENTRIES;
+        history_file.entries.drain(0..excess);
+    }
+
+    atomic_write_json(&path, &history_file)
+}
+
+#[tauri::command]
+pub fn cleanup_command_history(server_id: String, keep_last: u32) -> Result<(), String> {
+    let path = get_command_history_path(&server_id)?;
+
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+
+    let mut history_file: CommandHistoryFile = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    let keep = keep_last as usize;
+    if history_file.entries.len() > keep {
+        let excess = history_file.entries.len() - keep;
+        history_file.entries.drain(0..excess);
+    }
+
+    atomic_write_json(&path, &history_file)
+}
+
+#[tauri::command]
 pub fn load_command_cards(server_id: String) -> Result<CommandCardFile, String> {
     let path = get_command_cards_path(&server_id)?;
 
@@ -404,8 +562,12 @@ pub fn add_command_card(card: CommandCard) -> Result<(), String> {
         }
     };
 
-    // Check if card with same id already exists
-    if !cards_file.cards.iter().any(|c| c.id == card.id) {
+    // Check if card with same id or same command already exists
+    if let Some(existing) = cards_file.cards.iter_mut().find(|c| c.id == card.id || c.command.trim() == card.command.trim()) {
+        // Update existing card's usage and timestamp
+        existing.usage_count += 1;
+        existing.last_used = get_current_timestamp();
+    } else {
         // Enforce limit
         if cards_file.cards.len() >= MAX_COMMAND_CARDS {
             let excess = cards_file.cards.len() - MAX_COMMAND_CARDS + 1;
@@ -433,6 +595,36 @@ pub fn remove_command_card(card_id: String, server_id: String) -> Result<(), Str
     let mut cards_file: CommandCardFile = serde_json::from_str(&content).map_err(|e| e.to_string())?;
 
     cards_file.cards.retain(|c| c.id != card_id);
+
+    atomic_write_json(&path, &cards_file)
+}
+
+#[tauri::command]
+pub fn update_command_card(card: CommandCard) -> Result<(), String> {
+    let path = get_command_cards_path(&card.server_id)?;
+
+    if !path.exists() {
+        return Err("Command cards file not found".to_string());
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    if content.trim().is_empty() {
+        return Err("Command cards file is empty".to_string());
+    }
+
+    let mut cards_file: CommandCardFile = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let existing = cards_file
+        .cards
+        .iter_mut()
+        .find(|existing_card| existing_card.id == card.id)
+        .ok_or("Command card not found".to_string())?;
+
+    existing.natural_language = card.natural_language;
+    existing.command = card.command;
+    existing.description = card.description;
+    existing.danger_level = card.danger_level;
+    existing.category = card.category;
+    existing.last_used = get_current_timestamp();
 
     atomic_write_json(&path, &cards_file)
 }
@@ -487,6 +679,7 @@ pub fn get_command_card(card_id: String, server_id: String) -> Result<Option<Com
 pub fn cleanup_server_memory(server_id: String) -> Result<(), String> {
     let chat_path = get_chat_history_path(&server_id)?;
     let cards_path = get_command_cards_path(&server_id)?;
+    let command_history_path = get_command_history_path(&server_id)?;
 
     if chat_path.exists() {
         fs::remove_file(&chat_path).map_err(|e| e.to_string())?;
@@ -494,6 +687,10 @@ pub fn cleanup_server_memory(server_id: String) -> Result<(), String> {
 
     if cards_path.exists() {
         fs::remove_file(&cards_path).map_err(|e| e.to_string())?;
+    }
+
+    if command_history_path.exists() {
+        fs::remove_file(&command_history_path).map_err(|e| e.to_string())?;
     }
 
     Ok(())

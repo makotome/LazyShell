@@ -1,18 +1,11 @@
 import { useState } from 'react';
 import { AIProviderManager, createProvider } from '../providers/aiProvider';
-import type { ProviderType } from '../providers/aiProvider';
+import type { ManagedProviderInfo, ProviderType } from '../providers/aiProvider';
 import { invoke } from '@tauri-apps/api/core';
 
 interface AddProviderModalProps {
   providerManager: AIProviderManager;
-  editingProvider?: {
-    id: string;
-    name: string;
-    type: ProviderType;
-    apiKey: string;
-    baseUrl: string;
-    model: string;
-  } | null;
+  editingProvider?: ManagedProviderInfo | null;
   onClose: () => void;
 }
 
@@ -53,14 +46,7 @@ export function AddProviderModal({ providerManager, editingProvider, onClose }: 
       providerManager.addProvider(editingProvider?.id || `provider-${Date.now()}`, provider);
 
       // Persist to backend
-      const providers = providerManager.getProviders() as Array<{
-        id: string;
-        name: string;
-        type: ProviderType;
-        apiKey: string;
-        baseUrl?: string;
-        model?: string;
-      }>;
+      const providers = providerManager.getProviders();
 
       await invoke('save_provider_config', {
         providers: providers.map(p => ({

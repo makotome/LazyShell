@@ -1,8 +1,10 @@
 export type DangerLevel = 'green' | 'yellow' | 'red';
+export type CommandSource = 'direct' | 'terminal' | 'ai' | 'history' | 'favorite' | 'builtin';
 
 export type CommandCategory = 'file' | 'text' | 'system' | 'network' | 'process' | 'archive' | 'disk' | 'package' | 'other';
 
 export interface AIProvider {
+  type: 'minimax' | 'openai' | 'anthropic';
   name: string;
   apiKey: string;
   baseUrl?: string;
@@ -34,6 +36,12 @@ export interface TerminalContext {
   currentDir: string;
   recentCommands: CommandHistory[];
   sessionState: SessionState;
+  memoryContext?: MemoryContext;
+}
+
+export interface MemoryContext {
+  frequentCommands: { command: string; description: string; usageCount: number }[];
+  recentChatSummary: string[];
 }
 
 export interface CommandHistory {
@@ -41,6 +49,13 @@ export interface CommandHistory {
   output: string;
   exitCode: number;
   timestamp: number;
+  source?: CommandSource;
+}
+
+export interface CommandHistoryFile {
+  serverId: string;
+  entries: CommandHistory[];
+  version: string;
 }
 
 export interface SessionState {
@@ -63,6 +78,10 @@ export interface AddServerRequest {
   port: number;
   username: string;
   auth_method: AuthMethodInput;
+}
+
+export interface EditServerRequest extends AddServerRequest {
+  id: string;
 }
 
 export interface AuthMethodInput {
@@ -94,6 +113,7 @@ export interface ChatMessage {
   explanation?: string;
   isDangerous?: boolean;
   dangerLevel?: DangerLevel;
+  options?: AICommandOption[];
   timestamp: number;
 }
 
@@ -105,6 +125,7 @@ export interface ChatHistoryEntry {
   command?: string;
   explanation?: string;
   dangerLevel: DangerLevel;
+  options?: AICommandOption[];
   timestamp: number;
 }
 
@@ -168,6 +189,8 @@ export interface ServerStatus {
   network: NetworkStats[];
   processes: ListeningProcess[];
 }
+
+export type LayoutMode = 'sidebar-terminal' | 'all' | 'terminal-ai' | 'terminal-fullscreen';
 
 export interface ServerTab {
   id: string;

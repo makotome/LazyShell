@@ -10,7 +10,7 @@ import { TabBar } from './components/TabBar';
 import { ServerStatus } from './components/ServerStatus';
 import { UnlockScreen } from './components/UnlockScreen';
 import { useCommandDatabase } from './hooks/useCommandDatabase';
-import type { ServerInfo, CommandHistory, TerminalContext, CommandOutput, ServerTab, ServerBanner } from './types';
+import type { ServerInfo, CommandHistory, CommandHistoryFile, TerminalContext, CommandOutput, ServerTab, LayoutMode } from './types';
 import './App.css';
 
 function App() {
@@ -18,12 +18,45 @@ function App() {
   const [tabs, setTabs] = useState<ServerTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [isServerFormOpen, setIsServerFormOpen] = useState(false);
   const [providerManager] = useState(() => new AIProviderManager());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [aiSectionCollapsed, setAiSectionCollapsed] = useState(false);
   const [aiSectionWidth, setAiSectionWidth] = useState(350);
   const [isLocked, setIsLocked] = useState(true);
   const [shellSessions, setShellSessions] = useState<Record<string, boolean>>({});
   const isDraggingRef = useRef(false);
+  const recentHistoryWriteRef = useRef<Record<string, { command: string; timestamp: number }>>({});
+  const shellSessionsRef = useRef<Record<string, boolean>>({});
+
+  // Compute layout mode from sidebar/ai collapsed states
+  const layoutMode = useMemo<LayoutMode>(() => {
+    if (!sidebarCollapsed && aiSectionCollapsed) return 'sidebar-terminal';
+    if (!sidebarCollapsed && !aiSectionCollapsed) return 'all';
+    if (sidebarCollapsed && !aiSectionCollapsed) return 'terminal-ai';
+    return 'terminal-fullscreen';
+  }, [sidebarCollapsed, aiSectionCollapsed]);
+
+  const handleLayoutChange = useCallback((mode: LayoutMode) => {
+    switch (mode) {
+      case 'sidebar-terminal':
+        setSidebarCollapsed(false);
+        setAiSectionCollapsed(true);
+        break;
+      case 'all':
+        setSidebarCollapsed(false);
+        setAiSectionCollapsed(false);
+        break;
+      case 'terminal-ai':
+        setSidebarCollapsed(true);
+        setAiSectionCollapsed(false);
+        break;
+      case 'terminal-fullscreen':
+        setSidebarCollapsed(true);
+        setAiSectionCollapsed(true);
+        break;
+    }
+  }, []);
 
   // Command database hook
   const { search: searchCommands } = useCommandDatabase();
@@ -33,12 +66,9 @@ function App() {
 
   // Get command history for active tab
   const [commandHistoryMap, setCommandHistoryMap] = useState<Record<string, CommandHistory[]>>({});
-  const [currentOutputMap, setCurrentOutputMap] = useState<Record<string, string>>({});
-  const [welcomeBannerMap, setWelcomeBannerMap] = useState<Record<string, ServerBanner>>({});
-  const [serverHostnameMap, setServerHostnameMap] = useState<Record<string, string>>({});
+  const [, setCurrentOutputMap] = useState<Record<string, string>>({});
 
   const commandHistory = activeTab ? (commandHistoryMap[activeTab.id] || []) : [];
-  const currentOutput = activeTab ? (currentOutputMap[activeTab.id] || '') : '';
 
   const terminalContext = useMemo<TerminalContext>(() => ({
     currentDir: activeTab?.currentDir || '/',
@@ -55,15 +85,6 @@ function App() {
       setServers(serverList);
     } catch (err) {
       console.error('Failed to fetch servers:', err);
-    }
-  }, []);
-
-  const loadServers = useCallback(async () => {
-    try {
-      const serverList = await invoke<ServerInfo[]>('load_servers');
-      setServers(serverList);
-    } catch (err) {
-      console.error('Failed to load servers:', err);
     }
   }, []);
 
@@ -117,17 +138,50 @@ function App() {
     }
   }, [fetchServers]);
 
+  const appendHistoryEntry = useCallback((tabId: string, serverId: string, entry: CommandHistory) => {
+    const recent = recentHistoryWriteRef.current[tabId];
+    const isNearDuplicate =
+      recent &&
+      recent.command.trim() === entry.command.trim() &&
+      entry.timestamp - recent.timestamp < 1200;
+
+    if (isNearDuplicate) {
+      return;
+    }
+
+    recentHistoryWriteRef.current[tabId] = {
+      command: entry.command,
+      timestamp: entry.timestamp,
+    };
+
+    setCommandHistoryMap(prev => ({
+      ...prev,
+      [tabId]: [...(prev[tabId] || []), entry],
+    }));
+
+    invoke('append_command_history', {
+      serverId,
+      entry,
+    }).catch(err => {
+      console.error('Failed to persist command history:', err);
+    });
+  }, []);
+
   useEffect(() => {
     checkMasterPassword();
     loadProviderConfig();
   }, [checkMasterPassword, loadProviderConfig]);
 
-  // Keyboard shortcuts: Cmd+B for sidebar, Cmd+1-9 for tabs
+  // Keyboard shortcuts: Cmd+B for sidebar, Cmd+Shift+I for AI, Cmd+1-9 for tabs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault();
         setSidebarCollapsed((prev) => !prev);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'I') {
+        e.preventDefault();
+        setAiSectionCollapsed((prev) => !prev);
       }
       if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
         e.preventDefault();
@@ -173,11 +227,9 @@ function App() {
           output: result.output.stdout + (result.output.stderr ? '\n' + result.output.stderr : ''),
           exitCode: result.output.exit_code,
           timestamp: Date.now(),
+          source: 'direct',
         };
-        setCommandHistoryMap(prev => ({
-          ...prev,
-          [activeTab.id]: [...(prev[activeTab.id] || []), historyEntry],
-        }));
+        appendHistoryEntry(activeTab.id, activeTab.serverId, historyEntry);
         setCurrentOutputMap(prev => ({ ...prev, [activeTab.id]: '' }));
 
         // Update current directory if the command changed it
@@ -194,15 +246,80 @@ function App() {
     } catch (err) {
       setCurrentOutputMap(prev => ({ ...prev, [activeTab.id]: `执行失败: ${err instanceof Error ? err.message : 'Unknown error'}` }));
     }
-  }, [activeTab, activeTabId]);
+  }, [activeTab, activeTabId, appendHistoryEntry]);
 
-  const handleCommandComplete = useCallback(async (partial: string): Promise<string[]> => {
-    try {
-      return await invoke<string[]>('get_command_suggestions', { partial });
-    } catch {
-      return [];
+  const handleTerminalExecute = useCallback((command: string, source: CommandHistory['source'] = 'terminal') => {
+    if (!activeTabId || !activeTab) return;
+
+    invoke('shell_input', { tabId: activeTabId, data: `${command}\r` }).catch(err => {
+      console.error('Failed to send command to terminal:', err);
+    });
+
+    const historyEntry: CommandHistory = {
+      command,
+      output: '通过终端执行，输出将在交互式会话中显示。',
+      exitCode: 0,
+      timestamp: Date.now(),
+      source,
+    };
+
+    appendHistoryEntry(activeTab.id, activeTab.serverId, historyEntry);
+
+    const dirMatch = command.match(/^cd\s+(.+)$/);
+    if (dirMatch) {
+      const newDir = dirMatch[1];
+      setTabs(prev => prev.map(t =>
+        t.id === activeTab.id ? { ...t, currentDir: newDir } : t
+      ));
     }
-  }, []);
+  }, [activeTab, activeTabId, appendHistoryEntry]);
+
+  const handleObservedShellCommand = useCallback((command: string) => {
+    if (!activeTab) return;
+
+    const historyEntry: CommandHistory = {
+      command,
+      output: '交互式 shell 命令，输出未捕获。',
+      exitCode: 0,
+      timestamp: Date.now(),
+      source: 'terminal',
+    };
+
+    appendHistoryEntry(activeTab.id, activeTab.serverId, historyEntry);
+
+    const dirMatch = command.match(/^cd\s+(.+)$/);
+    if (dirMatch) {
+      const newDir = dirMatch[1];
+      setTabs(prev => prev.map(t =>
+        t.id === activeTab.id ? { ...t, currentDir: newDir } : t
+      ));
+    }
+  }, [activeTab, appendHistoryEntry]);
+
+  const reloadActiveCommandHistory = useCallback(async () => {
+    if (!activeTab) return;
+
+    try {
+      const persistedHistory = await invoke<CommandHistoryFile>('load_command_history', {
+        serverId: activeTab.serverId,
+      });
+      setCommandHistoryMap(prev => ({
+        ...prev,
+        [activeTab.id]: persistedHistory.entries,
+      }));
+    } catch (err) {
+      console.error('Failed to reload command history:', err);
+    }
+  }, [activeTab]);
+
+  const clearActiveCommandHistory = useCallback(() => {
+    if (!activeTab) return;
+
+    setCommandHistoryMap(prev => ({
+      ...prev,
+      [activeTab.id]: [],
+    }));
+  }, [activeTab]);
 
   const handleServerSelect = useCallback(async (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
@@ -236,7 +353,15 @@ function App() {
       // Only add tab to state AFTER shell is created successfully
       setTabs(prev => [...prev, newTab]);
       setActiveTabId(newTab.id);
-      setCommandHistoryMap(prev => ({ ...prev, [newTab.id]: [] }));
+      try {
+        const persistedHistory = await invoke<CommandHistoryFile>('load_command_history', {
+          serverId: server.id,
+        });
+        setCommandHistoryMap(prev => ({ ...prev, [newTab.id]: persistedHistory.entries }));
+      } catch (err) {
+        console.error('Failed to load persisted command history:', err);
+        setCommandHistoryMap(prev => ({ ...prev, [newTab.id]: [] }));
+      }
       setCurrentOutputMap(prev => ({ ...prev, [newTab.id]: '' }));
       setShellSessions(prev => ({ ...prev, [tabId]: true }));
     } catch (err) {
@@ -245,15 +370,6 @@ function App() {
       return;
     }
 
-    // Fetch welcome banner for this server
-    invoke<ServerBanner>('get_server_banner', { serverId })
-      .then(banner => {
-        setWelcomeBannerMap(prev => ({ ...prev, [newTab.id]: banner }));
-        setServerHostnameMap(prev => ({ ...prev, [newTab.id]: banner.hostname }));
-      })
-      .catch(err => {
-        console.error('Failed to fetch server banner:', err);
-      });
   }, [servers, tabs]);
 
   const handleTabSelect = useCallback((tabId: string) => {
@@ -261,17 +377,14 @@ function App() {
   }, []);
 
   const handleTabClose = useCallback((tabId: string) => {
-    if (tabs.length <= 1) return; // Keep at least one tab
-
-    const tabIndex = tabs.findIndex(t => t.id === tabId);
-
     // Close shell session for this tab
     invoke('close_shell_session', { tabId }).catch(err => {
       console.error('Failed to close shell session:', err);
     });
     setShellSessions(prev => {
-      const { [tabId]: _, ...rest } = prev;
-      return rest;
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
     });
 
     setTabs(prev => prev.filter(t => t.id !== tabId));
@@ -290,8 +403,8 @@ function App() {
 
     // If closing active tab, select another
     if (activeTabId === tabId) {
-      const newIndex = Math.min(tabIndex, tabs.length - 2);
-      setActiveTabId(tabs[newIndex]?.id || null);
+      const remainingTabs = tabs.filter(t => t.id !== tabId);
+      setActiveTabId(remainingTabs[0]?.id || null);
     }
   }, [tabs, activeTabId]);
 
@@ -309,12 +422,16 @@ function App() {
 
   // Cleanup: Close all shell sessions on unmount
   useEffect(() => {
+    shellSessionsRef.current = shellSessions;
+  }, [shellSessions]);
+
+  useEffect(() => {
     return () => {
-      Object.keys(shellSessions).forEach(tabId => {
+      Object.keys(shellSessionsRef.current).forEach(tabId => {
         invoke('close_shell_session', { tabId }).catch(console.error);
       });
     };
-  }, [shellSessions]);
+  }, []);
 
   // Drag handlers for AI section resize
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
@@ -358,48 +475,98 @@ function App() {
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
           <h1 className="app-title">LazyShell</h1>
-          <button className="btn btn-icon" onClick={() => setShowSettings(true)} title="设置">
-            ⚙️
-          </button>
         </div>
         <div className="sidebar-content">
-          <ServerList
-            servers={servers}
-            selectedServer={activeTab?.serverId || null}
-            onServerSelect={handleServerSelect}
-            onServersChange={fetchServers}
-          />
-          <ServerStatus serverId={activeTab?.serverId || null} />
+          <div className="sidebar-status-section">
+            <ServerStatus serverId={activeTab?.serverId || null} />
+          </div>
+          <div className="sidebar-list-section">
+            <div className="sidebar-section-header">
+              <span className="sidebar-section-title">服务器</span>
+              <span className="sidebar-section-meta">{servers.length} 台</span>
+            </div>
+            <ServerList
+              servers={servers}
+              selectedServer={activeTab?.serverId || null}
+              onServerSelect={handleServerSelect}
+              onServersChange={fetchServers}
+              showHeader={false}
+              addFormOpen={isServerFormOpen}
+              onAddFormOpenChange={setIsServerFormOpen}
+            />
+          </div>
+          <div className="sidebar-actions">
+            <button
+              className={`btn btn-primary btn-full ${isServerFormOpen ? 'sidebar-add-btn-open' : ''}`}
+              onClick={() => setIsServerFormOpen(prev => !prev)}
+            >
+              {isServerFormOpen ? '收起添加服务器' : '添加服务器'}
+            </button>
+          </div>
+          <div className="sidebar-footer">
+            <button className="btn btn-secondary btn-full" onClick={() => setShowSettings(true)} title="设置">
+              设置
+            </button>
+          </div>
         </div>
       </aside>
+
+      <button
+        className="collapse-btn collapse-btn-sidebar"
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+      >
+        {sidebarCollapsed ? '▶' : '◀'}
+      </button>
 
       <main className="main-content">
         <div className="content-area">
           <div className="terminal-section">
-            {tabs.length > 0 && (
-              <TabBar
-                tabs={tabs}
-                activeTabId={activeTabId || ''}
-                onTabSelect={handleTabSelect}
-                onTabClose={handleTabClose}
-                onNewTab={handleNewTab}
-              />
-            )}
+            <TabBar
+              tabs={tabs}
+              activeTabId={activeTabId || ''}
+              onTabSelect={handleTabSelect}
+              onTabClose={handleTabClose}
+              onNewTab={handleNewTab}
+              layoutMode={layoutMode}
+              onLayoutChange={handleLayoutChange}
+            />
             <div className="terminal-container">
-              {activeTabId && (
-                <Terminal tabId={activeTabId} />
-              )}
+              {tabs.map((tab) => (
+                <Terminal
+                  key={tab.id}
+                  tabId={tab.id}
+                  serverId={tab.serverId}
+                  isActive={tab.id === activeTabId}
+                  onCommandObserved={tab.id === activeTabId ? handleObservedShellCommand : undefined}
+                />
+              ))}
             </div>
           </div>
-          <div className="resize-handle resize-handle-right" onMouseDown={handleResizeMouseDown} />
-          <div className="ai-section" style={{ width: aiSectionWidth }}>
+          <button
+            className="collapse-btn collapse-btn-ai"
+            onClick={() => setAiSectionCollapsed(!aiSectionCollapsed)}
+            title={aiSectionCollapsed ? "展开 AI 助手" : "收起 AI 助手"}
+          >
+            {aiSectionCollapsed ? '◀' : '▶'}
+          </button>
+
+          {!aiSectionCollapsed && (
+            <div className="resize-handle resize-handle-right" onMouseDown={handleResizeMouseDown} />
+          )}
+
+          <div className={`ai-section ${aiSectionCollapsed ? 'collapsed' : ''}`} style={{ width: aiSectionCollapsed ? 0 : aiSectionWidth }}>
             <ProviderSelector providerManager={providerManager} />
             <AIChat
               providerManager={providerManager}
               context={terminalContext}
               tabId={activeTabId || ''}
               serverId={activeTab?.serverId || ''}
+              commandHistory={commandHistory}
               onCommandExecute={handleCommandSubmit}
+              onTerminalExecute={handleTerminalExecute}
+              onCommandHistoryReload={reloadActiveCommandHistory}
+              onCommandHistoryClear={clearActiveCommandHistory}
               commandDb={{ search: searchCommands }}
             />
           </div>

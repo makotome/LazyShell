@@ -40,7 +40,7 @@ interface ServerStatus {
 }
 
 export function ServerStatus({ serverId }: ServerStatusProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +125,13 @@ export function ServerStatus({ serverId }: ServerStatusProps) {
     return (
       <div className="server-status">
         <div className="status-header">
-          <span className="status-title">▶ 服务器状态</span>
+          <span className="status-title">服务器状态</span>
+        </div>
+        <div className="status-content status-content-empty">
+          <div className="status-empty-block">
+            <div className="status-empty-title">未连接服务器</div>
+            <div className="status-empty-hint">选择左侧服务器后，这里会显示磁盘、内存和网络状态。</div>
+          </div>
         </div>
       </div>
     );

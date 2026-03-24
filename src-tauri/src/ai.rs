@@ -13,19 +13,38 @@ pub enum AIError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AIRequest {
     pub prompt: String,
     pub context: TerminalContext,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TerminalContext {
     pub current_dir: String,
     pub recent_commands: Vec<CommandHistory>,
     pub session_state: SessionState,
+    pub memory_context: Option<MemoryContext>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryContext {
+    pub frequent_commands: Vec<FrequentCommand>,
+    pub recent_chat_summary: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentCommand {
+    pub command: String,
+    pub description: String,
+    pub usage_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandHistory {
     pub command: String,
     pub output: String,
@@ -34,12 +53,14 @@ pub struct CommandHistory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionState {
     pub connected_server: Option<String>,
     pub is_connected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AICommandOption {
     pub command: String,
     pub description: String,
@@ -48,6 +69,7 @@ pub struct AICommandOption {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AIResponse {
     pub command: Option<String>,
     pub explanation: Option<String>,
@@ -57,6 +79,7 @@ pub struct AIResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AICallParams {
     pub api_key: String,
     pub base_url: String,
@@ -236,10 +259,9 @@ Rules:
 - For dangerous operations (rm -rf, shutdown, reboot, dd, mkfs, etc.), set isDangerous: true
 - Always explain the command in Chinese when user uses Chinese
 - Keep explanations concise (1-2 sentences)
-- If the request could have multiple interpretations, ALWAYS provide multiple command options
-- NEVER ask for clarification - always provide all possible command options
-- Use "intent": "single" when the request is clear and unambiguous
-- Use "intent": "multiple" when the request could have multiple interpretations
+- When user instructions have multiple reasonable interpretations (e.g. "打开文件", "查看日志", "搜索内容", "显示信息"), proactively return intent:"multiple" with up to 3 options
+- Use "intent": "single" ONLY when the request is clear and unambiguous with no reasonable alternatives
+- Use "intent": "clarification" ONLY when the request is too vague to generate any useful commands (e.g. "帮我处理一下" without any context). Include a concise question to narrow down the intent.
 
 Response format for single command (JSON):
 {
@@ -267,6 +289,13 @@ Response format for multiple options (JSON):
       "reason": "when to use this command"
     }
   ]
+}
+
+Response format for clarification (JSON):
+{
+  "intent": "clarification",
+  "question": "你想要执行什么具体操作？比如...",
+  "explanation": "brief context about why clarification is needed"
 }"#
         .to_string()
 }
@@ -289,6 +318,22 @@ fn build_user_prompt(user_input: &str, context: &TerminalContext) -> String {
         context_info.push_str(&format!("\nConnected to: {}\n", server));
     }
 
+    // Inject memory context
+    if let Some(ref memory) = context.memory_context {
+        if !memory.frequent_commands.is_empty() {
+            context_info.push_str("\nUser's frequently used commands:\n");
+            for cmd in &memory.frequent_commands {
+                context_info.push_str(&format!("- {} ({}x): {}\n", cmd.command, cmd.usage_count, cmd.description));
+            }
+        }
+        if !memory.recent_chat_summary.is_empty() {
+            context_info.push_str("\nRecent conversation context:\n");
+            for summary in &memory.recent_chat_summary {
+                context_info.push_str(&format!("- {}\n", summary));
+            }
+        }
+    }
+
     format!(
         "User request: {}\n\n{}\n\nGenerate the appropriate command:",
         user_input, context_info
@@ -301,18 +346,16 @@ fn parse_ai_response(content: &str) -> Result<AIResponse, AIError> {
         if let Some(end) = content.rfind('}') {
             let json_str = &content[start..=end];
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
-                // Check if this is a clarification response (contains question marks or request for more info)
-                let is_clarification = content.contains('?')
-                    || content.contains("请告诉我")
-                    || content.contains("请提供")
-                    || content.contains("能否")
-                    || content.contains("具体是")
-                    || (content.contains("?") && content.to_lowercase().contains("which") || content.to_lowercase().contains("what"));
+                // Check if the JSON explicitly declares intent: "clarification"
+                let intent_str = parsed.get("intent").and_then(|v| v.as_str()).unwrap_or("");
 
-                if is_clarification {
+                if intent_str == "clarification" {
+                    let question = parsed.get("question").and_then(|v| v.as_str()).unwrap_or("");
+                    let explanation = parsed.get("explanation").and_then(|v| v.as_str()).unwrap_or("");
+                    let display = if !question.is_empty() { question } else { explanation };
                     return Ok(AIResponse {
                         command: None,
-                        explanation: Some(content.to_string()),
+                        explanation: Some(display.to_string()),
                         is_dangerous: false,
                         options: None,
                         intent: "clarification".to_string(),

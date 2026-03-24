@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import type { MouseEvent as ReactMouseEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
@@ -9,6 +10,9 @@ interface PtyTerminalProps {
   serverId: string;
   onClose: () => void;
 }
+
+// Legacy / experimental terminal path.
+// The current application mainline uses Terminal.tsx -> shell_* -> PersistentShell.
 
 // Character dimensions matching backend PTY settings (8x15)
 const CHAR_WIDTH = 8;
@@ -206,7 +210,7 @@ export function PtyTerminal({ serverId, onClose }: PtyTerminalProps) {
   }, []);
 
   // Handle right-click context menu for paste
-  const handleContextMenu = useCallback(async (e: MouseEvent) => {
+  const handleContextMenu = useCallback(async (e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (!isConnectedRef.current) return;
     try {
@@ -220,7 +224,7 @@ export function PtyTerminal({ serverId, onClose }: PtyTerminalProps) {
   }, [serverId]);
 
   // Handle all keyboard events directly
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!isConnectedRef.current) return;
 
     const xterm = xtermRef.current;

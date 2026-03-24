@@ -422,6 +422,16 @@ impl SSHConnectionManager {
         }
     }
 
+    pub fn update_connection(&self, config: ServerConfig) -> Result<(), SSHError> {
+        let mut connections = self.connections.lock().unwrap();
+        if let Some(conn) = connections.iter_mut().find(|c| c.server_config.id == config.id) {
+            conn.server_config = config;
+            Ok(())
+        } else {
+            Err(SSHError::IoError("Server not found".to_string()))
+        }
+    }
+
     pub fn list_connections(&self) -> Vec<ServerConfig> {
         let connections = self.connections.lock().unwrap();
         connections.iter().map(|c| c.server_config.clone()).collect()
@@ -763,8 +773,11 @@ impl PersistentShell {
             return Err(SSHError::NotConnected);
         }
         // Write data to the channel
-        self.channel.write(data.as_bytes())
-            .map_err(|e| SSHError::IoError(e.to_string()))?;
+        match self.channel.write(data.as_bytes()) {
+            Ok(_) => {}
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+            Err(e) => return Err(SSHError::IoError(e.to_string())),
+        }
         // Don't call flush in non-blocking mode - it can cause "would block" errors
         // The data will be flushed when the internal buffer is full or on next read
         Ok(())
@@ -800,9 +813,7 @@ impl PersistentShell {
 
     /// Close the PTY shell session
     pub fn close(&mut self) -> Result<(), SSHError> {
-        if let Err(e) = self.channel.close() {
-            return Err(SSHError::IoError(e.to_string()));
-        }
+        let _ = self.channel.close();
         self.pty_active = false;
         Ok(())
     }

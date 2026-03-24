@@ -31,3 +31,6 @@ npm-debug.log*
 
 # Claude
 .claude/
+
+# Skill
+.superpowers/

@@ -1,12 +1,15 @@
 import { useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { ServerInfo, AddServerRequest, AuthMethodInput } from '../types';
+import type { ServerInfo, AddServerRequest, AuthMethodInput, EditServerRequest } from '../types';
 
 interface ServerListProps {
   servers: ServerInfo[];
   selectedServer: string | null;
   onServerSelect: (serverId: string) => void;
   onServersChange: () => void;
+  showHeader?: boolean;
+  addFormOpen?: boolean;
+  onAddFormOpenChange?: (open: boolean) => void;
 }
 
 export function ServerList({
@@ -14,8 +17,11 @@ export function ServerList({
   selectedServer,
   onServerSelect,
   onServersChange,
+  showHeader = true,
+  addFormOpen,
+  onAddFormOpenChange,
 }: ServerListProps) {
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [internalShowAddForm, setInternalShowAddForm] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -27,7 +33,17 @@ export function ServerList({
     passphrase: '',
   });
   const [error, setError] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const isAddFormOpen = addFormOpen ?? internalShowAddForm;
+
+  const setAddFormOpen = (open: boolean) => {
+    if (onAddFormOpenChange) {
+      onAddFormOpenChange(open);
+      return;
+    }
+    setInternalShowAddForm(open);
+  };
 
   const handleAddServer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +64,7 @@ export function ServerList({
 
     try {
       await invoke('add_server', { request });
-      setShowAddForm(false);
+      setAddFormOpen(false);
       resetForm();
       onServersChange();
     } catch (err) {
@@ -84,8 +100,60 @@ export function ServerList({
     }
   };
 
+  const handleEditServer = (server: ServerInfo) => {
+    setEditingServerId(server.id);
+    // Default to password auth type when editing
+    setFormData({
+      name: server.name,
+      host: server.host,
+      port: server.port,
+      username: server.username,
+      authType: 'password',
+      password: '',
+      keyData: '',
+      passphrase: '',
+    });
+    setAddFormOpen(true);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingServerId) return;
+
+    setError(null);
+
+    const authMethod: AuthMethodInput =
+      formData.authType === 'password'
+        ? { type: 'Password', password: formData.password }
+        : { type: 'PrivateKey', key_data: formData.keyData, passphrase: formData.passphrase || undefined };
+
+    const request: EditServerRequest = {
+      id: editingServerId,
+      name: formData.name,
+      host: formData.host,
+      port: formData.port,
+      username: formData.username,
+      auth_method: authMethod,
+    };
+
+    try {
+      await invoke('update_server', { request });
+      setAddFormOpen(false);
+      setEditingServerId(null);
+      resetForm();
+      onServersChange();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes('Master password') || errorMsg.includes('not set')) {
+        setError('请先在设置中设置主密码');
+      } else {
+        setError(errorMsg);
+      }
+    }
+  };
+
   const handleTestConnection = async (serverId: string) => {
-    setIsConnecting(true);
+    setConnectingServerId(serverId);
     setError(null);
     try {
       const result = await invoke<boolean>('test_connection', { serverId });
@@ -97,7 +165,7 @@ export function ServerList({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection test failed');
     } finally {
-      setIsConnecting(false);
+      setConnectingServerId(null);
     }
   };
 
@@ -113,20 +181,28 @@ export function ServerList({
 
   return (
     <div className="server-list">
-      <div className="server-list-header">
-        <h2>服务器</h2>
-        <button
-          className="btn btn-small"
-          onClick={() => setShowAddForm(!showAddForm)}
-        >
-          {showAddForm ? '取消' : '+ 添加'}
-        </button>
-      </div>
+      {showHeader && (
+        <div className="server-list-header">
+          <h2>服务器</h2>
+          <button
+            className="btn btn-small"
+            onClick={() => {
+              setAddFormOpen(!isAddFormOpen);
+              if (isAddFormOpen && editingServerId) {
+                setEditingServerId(null);
+                resetForm();
+              }
+            }}
+          >
+            {isAddFormOpen ? (editingServerId ? '取消编辑' : '取消') : '+ 添加'}
+          </button>
+        </div>
+      )}
 
       {error && <div className="error-message">{error}</div>}
 
-      {showAddForm && (
-        <form className="add-server-form" onSubmit={handleAddServer}>
+      {isAddFormOpen && (
+        <form className="add-server-form" onSubmit={editingServerId ? handleSaveEdit : handleAddServer}>
           <div className="form-group">
             <label>名称</label>
             <input
@@ -135,6 +211,9 @@ export function ServerList({
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="生产服务器-1"
               required
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck="false"
             />
           </div>
 
@@ -147,6 +226,9 @@ export function ServerList({
                 onChange={(e) => setFormData({ ...formData, host: e.target.value })}
                 placeholder="192.168.1.100"
                 required
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck="false"
               />
             </div>
             <div className="form-group port">
@@ -157,6 +239,7 @@ export function ServerList({
                 onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 22 })}
                 min={1}
                 max={65535}
+                autoComplete="off"
               />
             </div>
           </div>
@@ -221,8 +304,8 @@ export function ServerList({
             </>
           )}
 
-          <button type="submit" className="btn btn-primary btn-full">
-            添加服务器
+            <button type="submit" className="btn btn-primary btn-full">
+            {editingServerId ? '保存修改' : '添加服务器'}
           </button>
         </form>
       )}
@@ -245,15 +328,25 @@ export function ServerList({
                   <span className="server-user">@{server.username}</span>
                   <div className="server-actions">
                     <button
-                      className="btn btn-icon"
+                      className={`btn btn-icon ${connectingServerId === server.id ? 'btn-loading' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleTestConnection(server.id);
                       }}
                       title="测试连接"
-                      disabled={isConnecting}
+                      disabled={connectingServerId !== null}
                     >
-                      🔗
+                      {connectingServerId === server.id ? '⏳' : '🔗'}
+                    </button>
+                    <button
+                      className="btn btn-icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditServer(server);
+                      }}
+                      title="编辑"
+                    >
+                      ✏️
                     </button>
                     <button
                       className="btn btn-icon"
@@ -272,10 +365,10 @@ export function ServerList({
           </div>
         ))}
 
-        {servers.length === 0 && !showAddForm && (
+        {servers.length === 0 && !isAddFormOpen && (
           <div className="empty-state">
             <p>暂无服务器</p>
-            <p className="hint">点击上方"添加"按钮添加第一台服务器</p>
+            <p className="hint">点击下方“添加服务器”开始配置第一台机器</p>
           </div>
         )}
       </div>

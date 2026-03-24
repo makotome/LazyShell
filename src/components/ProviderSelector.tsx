@@ -1,6 +1,6 @@
 import { useMemo, memo, useState } from 'react';
 import type { AIProviderManager } from '../providers/aiProvider';
-import type { ProviderType } from '../providers/aiProvider';
+import type { ManagedProviderInfo } from '../providers/aiProvider';
 import { AddProviderModal } from './AddProviderModal';
 import './ProviderSelector.css';
 
@@ -8,17 +8,10 @@ interface ProviderSelectorProps {
   providerManager: AIProviderManager;
 }
 
-interface ProviderInfo {
-  id: string;
-  name: string;
-  type: ProviderType;
-  isActive: boolean;
-}
-
 export const ProviderSelector = memo(function ProviderSelector({ providerManager }: ProviderSelectorProps) {
-  const providers = useMemo(() => providerManager.getProviders() as ProviderInfo[], [providerManager]);
+  const providers = useMemo(() => providerManager.getProviders(), [providerManager]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<ProviderInfo | null>(null);
+  const [editingProvider, setEditingProvider] = useState<ManagedProviderInfo | null>(null);
 
   const handleSelectProvider = (providerId: string) => {
     providerManager.setActiveProvider(providerId);
@@ -29,7 +22,7 @@ export const ProviderSelector = memo(function ProviderSelector({ providerManager
     providerManager.removeProvider(providerId);
   };
 
-  const handleEditProvider = (provider: ProviderInfo, e: React.MouseEvent) => {
+  const handleEditProvider = (provider: ManagedProviderInfo, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingProvider(provider);
     setShowAddModal(true);

@@ -25,7 +25,7 @@ export function ResizablePanels({
 }: ResizablePanelsProps) {
   const [leftWidth, setLeftWidth] = useState(defaultLeftWidth);
   const [rightWidth, setRightWidth] = useState(defaultRightWidth);
-  const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
+  const [isLeftCollapsed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingLeft = useRef(false);
   const isDraggingRight = useRef(false);
