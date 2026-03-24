@@ -4,7 +4,10 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background:
+    radial-gradient(circle at top left, rgba(49, 196, 255, 0.1), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(14, 116, 144, 0.18), transparent 34%),
+    linear-gradient(180deg, #08131d 0%, #050b12 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -12,42 +15,71 @@
 }
 
 .unlock-container {
-  background: rgba(30, 30, 50, 0.95);
-  border: 1px solid rgba(100, 100, 150, 0.2);
-  border-radius: 16px;
-  padding: 48px;
+  background:
+    radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
+    rgba(8, 15, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 30px;
   width: 100%;
-  max-width: 400px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  max-width: 430px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 24px 60px rgba(0, 0, 0, 0.42);
 }
 
 .unlock-header {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 22px;
+}
+
+.unlock-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(49, 196, 255, 0.74);
+  margin-bottom: 8px;
 }
 
 .unlock-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 14px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  color: #dcf7ff;
+  background:
+    linear-gradient(135deg, rgba(49, 196, 255, 0.18), rgba(14, 116, 144, 0.16)),
+    rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(49, 196, 255, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 30px rgba(0, 0, 0, 0.22);
 }
 
 .unlock-title {
-  font-size: 28px;
-  font-weight: 600;
-  color: #e0e0ff;
+  font-size: 24px;
+  font-weight: 700;
+  color: #edf6ff;
   margin: 0 0 8px 0;
+  letter-spacing: -0.03em;
 }
 
 .unlock-subtitle {
-  font-size: 14px;
-  color: #8888aa;
+  font-size: 13px;
+  color: #9eb4c7;
   margin: 0;
+  line-height: 1.6;
 }
 
 .unlock-form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
 .form-group {
@@ -58,30 +90,32 @@
 
 .form-group label {
   font-size: 13px;
-  font-weight: 500;
-  color: #9999bb;
+  font-weight: 700;
+  color: #9eb4c7;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.12em;
 }
 
 .form-group input {
-  padding: 14px 16px;
-  font-size: 15px;
-  background: rgba(20, 20, 35, 0.8);
-  border: 1px solid rgba(100, 100, 150, 0.3);
-  border-radius: 8px;
-  color: #e0e0ff;
+  padding: 11px 12px;
+  font-size: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
+    rgba(7, 17, 26, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: #edf6ff;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .form-group input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  border-color: #31c4ff;
+  box-shadow: 0 0 0 3px rgba(49, 196, 255, 0.14);
 }
 
 .form-group input::placeholder {
-  color: #555577;
+  color: #5f7688;
 }
 
 .form-group input:disabled {
@@ -90,30 +124,35 @@
 }
 
 .unlock-error {
-  padding: 12px;
+  padding: 10px;
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
+  border-radius: 10px;
   color: #f87171;
   font-size: 13px;
   text-align: center;
 }
 
 .unlock-button {
-  padding: 14px 24px;
-  font-size: 15px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  padding: 11px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #31c4ff 0%, #0ea5b7 50%, #1d6fa5 100%);
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   color: white;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 14px 26px rgba(8, 34, 49, 0.3);
 }
 
 .unlock-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 16px 28px rgba(8, 34, 49, 0.34);
 }
 
 .unlock-button:active:not(:disabled) {
@@ -126,27 +165,27 @@
 }
 
 .unlock-hint {
-  margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid rgba(100, 100, 150, 0.2);
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   text-align: center;
 }
 
 .unlock-hint p {
   font-size: 12px;
-  color: #666688;
+  color: #7d93a5;
   margin: 0 0 8px 0;
 }
 
 .unlock-hint .hint-path {
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
   font-size: 11px;
-  color: #555577;
+  color: #5f7688;
 }
 
 .unlock-hint code {
-  background: rgba(50, 50, 80, 0.5);
+  background: rgba(255, 255, 255, 0.05);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 8px;
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
 }

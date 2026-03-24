@@ -2,7 +2,6 @@ import { useMemo, memo, useState } from 'react';
 import type { AIProviderManager } from '../providers/aiProvider';
 import type { ManagedProviderInfo } from '../providers/aiProvider';
 import { AddProviderModal } from './AddProviderModal';
-import './ProviderSelector.css';
 
 interface ProviderSelectorProps {
   providerManager: AIProviderManager;

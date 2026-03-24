@@ -970,14 +970,24 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
               </div>
 
               <form className="chat-input-form" onSubmit={handleSubmit}>
-                <input
-                  type="text"
-                  className="chat-input"
-                  placeholder={clarificationContext ? "请补充说明..." : "描述你想执行的服务器操作..."}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  disabled={isLoading}
-                />
+                <div className="chat-composer-shell">
+                  <div className="chat-composer-header">
+                    <span className="chat-composer-kicker">
+                      {clarificationContext ? '补充上下文' : 'Command Intent'}
+                    </span>
+                    <span className="chat-composer-context">
+                      {context.currentDir ? `目录 ${context.currentDir}` : '根据当前终端上下文生成命令'}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    className="chat-input"
+                    placeholder={clarificationContext ? "请补充说明..." : "描述你想执行的服务器操作..."}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    disabled={isLoading}
+                  />
+                </div>
                 <button type="submit" className="btn btn-primary" disabled={isLoading || !input.trim()}>
                   发送
                 </button>

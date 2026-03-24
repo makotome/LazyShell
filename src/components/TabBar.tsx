@@ -54,6 +54,7 @@ function LayoutIcon({ mode }: { mode: LayoutMode }) {
 
 export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, layoutMode, onLayoutChange }: TabBarProps) {
   const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
 
   // Scroll active tab into view
   useEffect(() => {
@@ -77,6 +78,10 @@ export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, l
 
   return (
     <div className="tab-bar">
+      <div className="tab-bar-meta">
+        <span className="tab-bar-kicker">Workspace</span>
+        <span className="tab-bar-label">{activeTab ? activeTab.serverName : '未连接服务器'}</span>
+      </div>
       <div className="tabs-container" ref={tabsContainerRef}>
         {tabs.map((tab) => (
           <div
@@ -88,7 +93,7 @@ export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, l
             role="tab"
             aria-selected={activeTabId === tab.id}
           >
-            <span className="tab-icon">🖥️</span>
+            <span className="tab-icon" aria-hidden="true">▣</span>
             <span className="tab-name" title={`${tab.serverName} (${tab.currentDir})`}>
               {tab.serverName}
             </span>

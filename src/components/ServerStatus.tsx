@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 
 interface ServerStatusProps {
   serverId: string | null;
+  serverName?: string | null;
+  serverHost?: string | null;
 }
 
 interface DiskUsage {
@@ -39,7 +41,7 @@ interface ServerStatus {
   processes: ListeningProcess[];
 }
 
-export function ServerStatus({ serverId }: ServerStatusProps) {
+export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -125,7 +127,10 @@ export function ServerStatus({ serverId }: ServerStatusProps) {
     return (
       <div className="server-status">
         <div className="status-header">
-          <span className="status-title">服务器状态</span>
+          <div className="status-header-copy">
+            <span className="status-title">服务器状态</span>
+            <span className="status-subtitle">未连接服务器</span>
+          </div>
         </div>
         <div className="status-content status-content-empty">
           <div className="status-empty-block">
@@ -140,11 +145,15 @@ export function ServerStatus({ serverId }: ServerStatusProps) {
   return (
     <div className="server-status">
       <div className="status-header" onClick={() => setIsExpanded(!isExpanded)}>
-        <span className="status-title">
-          {isExpanded ? '▼' : '▶'} 服务器状态
-        </span>
-        {loading && <span className="status-loading">加载中...</span>}
-        {error && <span className="status-error">错误</span>}
+        <div className="status-header-copy">
+          <span className="status-title">服务器状态</span>
+          <span className="status-subtitle">{serverName || '当前服务器'} · {serverHost || '未知地址'}</span>
+        </div>
+        <div className="status-header-meta">
+          {loading && <span className="status-loading">同步中</span>}
+          {error && <span className="status-error">错误</span>}
+          <span className="status-toggle">{isExpanded ? '收起' : '展开'}</span>
+        </div>
       </div>
 
       {isExpanded && status && (

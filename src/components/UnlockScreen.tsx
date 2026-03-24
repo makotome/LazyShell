@@ -65,7 +65,8 @@ export function UnlockScreen({ onUnlock }: UnlockScreenProps) {
     <div className="unlock-screen">
       <div className="unlock-container">
         <div className="unlock-header">
-          <div className="unlock-icon">🔐</div>
+          <div className="unlock-kicker">Mission Control</div>
+          <div className="unlock-icon">▣</div>
           <h1 className="unlock-title">LazyShell</h1>
           <p className="unlock-subtitle">
             {isSetupMode ? '设置主密码以保护您的服务器配置' : '请输入主密码解锁'}

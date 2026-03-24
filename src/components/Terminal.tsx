@@ -22,11 +22,6 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
   const recoveringSessionRef = useRef(false);
   const commandBufferRef = useRef('');
   const isActiveRef = useRef(isActive);
-  const debugLog = useCallback((event: string, details?: Record<string, unknown>) => {
-    if (import.meta.env.DEV) {
-      console.debug(`[Terminal ${tabId}] ${event}`, details ?? {});
-    }
-  }, [tabId]);
 
   useEffect(() => {
     isActiveRef.current = isActive;
@@ -34,13 +29,11 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
 
   const ensureSession = useCallback(async () => {
     if (recoveringSessionRef.current) {
-      debugLog('ensureSession:skip_already_recovering');
       return false;
     }
 
     recoveringSessionRef.current = true;
     const { rows, cols } = terminalSizeRef.current;
-    debugLog('ensureSession:start', { serverId, rows, cols });
 
     try {
       await invoke('create_shell_session', {
@@ -49,33 +42,28 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
         rows,
         cols,
       });
-      debugLog('ensureSession:success');
       return true;
     } catch (err) {
-      debugLog('ensureSession:error', { error: String(err) });
       console.error('Failed to recreate shell session:', err);
       return false;
     } finally {
       recoveringSessionRef.current = false;
     }
-  }, [debugLog, serverId, tabId]);
+  }, [serverId, tabId]);
 
   const sendInput = useCallback((data: string) => {
-    debugLog('sendInput:start', { data });
     invoke('shell_input', { tabId, data }).catch(async (err) => {
       const message = String(err);
-      debugLog('sendInput:error', { error: message, data });
       if (message.includes('Not connected')) {
         const recovered = await ensureSession();
         if (recovered) {
-          debugLog('sendInput:retry_after_recover', { data });
           invoke('shell_input', { tabId, data }).catch(console.error);
         }
         return;
       }
       console.error(err);
     });
-  }, [debugLog, ensureSession, tabId]);
+  }, [ensureSession, tabId]);
 
   const focusTerminal = useCallback(() => {
     xtermRef.current?.focus();
@@ -170,17 +158,13 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
     if (isActive) {
       xterm.focus();
     }
-    debugLog('mount', { serverId });
 
     // Initial resize - use xterm's actual dimensions after fit()
     {
       const rows = xterm.rows;
       const cols = xterm.cols;
       terminalSizeRef.current = { rows, cols };
-      invoke('shell_resize', { tabId, rows, cols }).catch(async (err) => {
-        debugLog('initialResize:error', { error: String(err), rows, cols });
-        console.error(err);
-      });
+      invoke('shell_resize', { tabId, rows, cols }).catch(() => {});
     }
 
     // Handle resize with ResizeObserver - use xterm's actual dimensions
@@ -193,10 +177,7 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
         const rows = xtermRef.current.rows;
         const cols = xtermRef.current.cols;
         terminalSizeRef.current = { rows, cols };
-        invoke('shell_resize', { tabId, rows, cols }).catch(async (err) => {
-          debugLog('resize:error', { error: String(err), rows, cols });
-          console.error(err);
-        });
+        invoke('shell_resize', { tabId, rows, cols }).catch(() => {});
       }
     });
 
@@ -205,13 +186,12 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
     }
 
     return () => {
-      debugLog('unmount');
       resizeObserver.disconnect();
       xterm.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [debugLog, ensureSession, serverId, tabId]);
+  }, [ensureSession, serverId, tabId]);
 
   useEffect(() => {
     if (!xtermRef.current || !fitAddonRef.current || !isActive) {
@@ -293,11 +273,9 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
       try {
         const output = await invoke<string>('shell_output', { tabId });
         if (output) {
-          debugLog('poll:output', { length: output.length });
           xterm.write(output);
         }
       } catch (err) {
-        debugLog('poll:error', { error: String(err) });
         if (!String(err).includes('Not connected')) {
           console.error('Failed to read shell output:', err);
         }
@@ -317,7 +295,7 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
         window.clearTimeout(timeoutId);
       }
     };
-  }, [debugLog, isActive, tabId]);
+  }, [isActive, tabId]);
 
   const handleContextMenu = useCallback(async (e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -333,11 +311,24 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
   }, [focusTerminal, sendInput]);
 
   return (
-    <div
-      ref={terminalRef}
-      className={`terminal-xterm ${isActive ? 'active' : 'inactive'}`}
-      onClick={focusTerminal}
-      onContextMenu={handleContextMenu}
-    />
+    <div className={`terminal-stage ${isActive ? 'active' : 'inactive'}`}>
+      <div className="terminal-stage-header">
+        <div className="terminal-stage-meta">
+          <span className="terminal-stage-kicker">Live Shell</span>
+          <span className="terminal-stage-label">{serverId}</span>
+        </div>
+        <div className="terminal-stage-indicators" aria-hidden="true">
+          <span className="terminal-stage-dot terminal-stage-dot-live" />
+          <span className="terminal-stage-dot" />
+          <span className="terminal-stage-dot" />
+        </div>
+      </div>
+      <div
+        ref={terminalRef}
+        className={`terminal-xterm ${isActive ? 'active' : 'inactive'}`}
+        onClick={focusTerminal}
+        onContextMenu={handleContextMenu}
+      />
+    </div>
   );
 }

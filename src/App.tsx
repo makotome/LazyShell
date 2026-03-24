@@ -19,6 +19,7 @@ function App() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isServerFormOpen, setIsServerFormOpen] = useState(false);
+  const [isServerListExpanded, setIsServerListExpanded] = useState(false);
   const [providerManager] = useState(() => new AIProviderManager());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [aiSectionCollapsed, setAiSectionCollapsed] = useState(false);
@@ -63,6 +64,10 @@ function App() {
 
   // Get active tab's state
   const activeTab = useMemo(() => tabs.find(t => t.id === activeTabId), [tabs, activeTabId]);
+  const activeServerInfo = useMemo(
+    () => servers.find(server => server.id === activeTab?.serverId) || null,
+    [servers, activeTab?.serverId]
+  );
 
   // Get command history for active tab
   const [commandHistoryMap, setCommandHistoryMap] = useState<Record<string, CommandHistory[]>>({});
@@ -478,22 +483,37 @@ function App() {
         </div>
         <div className="sidebar-content">
           <div className="sidebar-status-section">
-            <ServerStatus serverId={activeTab?.serverId || null} />
+            <ServerStatus
+              serverId={activeTab?.serverId || null}
+              serverName={activeServerInfo?.name || null}
+              serverHost={activeServerInfo?.host || null}
+            />
           </div>
+          <div className="sidebar-spacer" />
           <div className="sidebar-list-section">
-            <div className="sidebar-section-header">
+            <button
+              className={`sidebar-section-header sidebar-section-toggle ${isServerListExpanded ? 'expanded' : ''}`}
+              type="button"
+              onClick={() => setIsServerListExpanded(prev => !prev)}
+            >
               <span className="sidebar-section-title">服务器</span>
               <span className="sidebar-section-meta">{servers.length} 台</span>
+              <span className="sidebar-section-caret">{isServerListExpanded ? '▾' : '▴'}</span>
+            </button>
+            <div className={`sidebar-list-panel ${isServerListExpanded ? 'expanded' : ''}`}>
+              <ServerList
+                servers={servers}
+                selectedServer={activeTab?.serverId || null}
+                onServerSelect={(serverId) => {
+                  handleServerSelect(serverId);
+                  setIsServerListExpanded(false);
+                }}
+                onServersChange={fetchServers}
+                showHeader={false}
+                addFormOpen={isServerFormOpen}
+                onAddFormOpenChange={setIsServerFormOpen}
+              />
             </div>
-            <ServerList
-              servers={servers}
-              selectedServer={activeTab?.serverId || null}
-              onServerSelect={handleServerSelect}
-              onServersChange={fetchServers}
-              showHeader={false}
-              addFormOpen={isServerFormOpen}
-              onAddFormOpenChange={setIsServerFormOpen}
-            />
           </div>
           <div className="sidebar-actions">
             <button
