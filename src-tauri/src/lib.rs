@@ -23,6 +23,7 @@ pub fn run() {
             commands::remove_server,
             commands::list_servers,
             commands::execute_command,
+            commands::get_server_status,
             commands::test_connection,
             commands::check_command_dangerous,
             commands::get_server_banner,

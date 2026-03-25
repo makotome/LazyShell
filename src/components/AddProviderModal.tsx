@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AIProviderManager, createProvider } from '../providers/aiProvider';
 import type { ManagedProviderInfo, ProviderType } from '../providers/aiProvider';
 import { invoke } from '@tauri-apps/api/core';
@@ -7,9 +7,10 @@ interface AddProviderModalProps {
   providerManager: AIProviderManager;
   editingProvider?: ManagedProviderInfo | null;
   onClose: () => void;
+  onSaved?: (providerId: string) => void;
 }
 
-export function AddProviderModal({ providerManager, editingProvider, onClose }: AddProviderModalProps) {
+export function AddProviderModal({ providerManager, editingProvider, onClose, onSaved }: AddProviderModalProps) {
   const [name, setName] = useState(editingProvider?.name || '');
   const [type, setType] = useState<ProviderType>(editingProvider?.type || 'minimax');
   const [apiKey, setApiKey] = useState(editingProvider?.apiKey || '');
@@ -19,6 +20,17 @@ export function AddProviderModal({ providerManager, editingProvider, onClose }: 
   const [loading, setLoading] = useState(false);
 
   const isEditing = !!editingProvider;
+
+  useEffect(() => {
+    if (isEditing) {
+      return;
+    }
+
+    if (type === 'minimax' && !baseUrl && !model) {
+      setBaseUrl('https://api.minimaxi.com/anthropic');
+      setModel('MiniMax-M2.7');
+    }
+  }, [baseUrl, isEditing, model, type]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +44,7 @@ export function AddProviderModal({ providerManager, editingProvider, onClose }: 
     setLoading(true);
 
     try {
+      const providerId = editingProvider?.id || `provider-${Date.now()}`;
       const provider = createProvider({
         type,
         name: name || type,
@@ -43,7 +56,8 @@ export function AddProviderModal({ providerManager, editingProvider, onClose }: 
       if (isEditing) {
         providerManager.removeProvider(editingProvider.id);
       }
-      providerManager.addProvider(editingProvider?.id || `provider-${Date.now()}`, provider);
+      providerManager.addProvider(providerId, provider);
+      providerManager.setActiveProvider(providerId);
 
       // Persist to backend
       const providers = providerManager.getProviders();
@@ -59,6 +73,7 @@ export function AddProviderModal({ providerManager, editingProvider, onClose }: 
         })),
       });
 
+      onSaved?.(providerId);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');

@@ -20,8 +20,8 @@
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
     rgba(8, 15, 22, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  padding: 30px;
+  border-radius: 10px;
+  padding: 24px;
   width: 100%;
   max-width: 430px;
   box-shadow:
@@ -47,7 +47,7 @@
   width: 54px;
   height: 54px;
   margin: 0 auto 14px;
-  border-radius: 12px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
   font-size: 26px;
@@ -103,7 +103,7 @@
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
     rgba(7, 17, 26, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  border-radius: 7px;
   color: #edf6ff;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -127,7 +127,7 @@
   padding: 10px;
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 10px;
+  border-radius: 7px;
   color: #f87171;
   font-size: 13px;
   text-align: center;
@@ -139,7 +139,7 @@
   font-weight: 700;
   background: linear-gradient(135deg, #31c4ff 0%, #0ea5b7 50%, #1d6fa5 100%);
   border: none;
-  border-radius: 10px;
+  border-radius: 7px;
   color: white;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;

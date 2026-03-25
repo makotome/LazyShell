@@ -41,78 +41,59 @@ interface ServerStatus {
   processes: ListeningProcess[];
 }
 
+interface ServerStatusSnapshot {
+  disk_stdout: string;
+  memory_stdout: string;
+  network_stdout: string;
+}
+
 export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [status, setStatus] = useState<ServerStatus | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
   const prevNetworkRef = useRef<Record<string, { rx: number; tx: number }>>({});
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async () => {
     if (!serverId) return;
 
-    setLoading(true);
-    setError(null);
+    const isInitialLoad = !hasLoadedRef.current;
+    if (isInitialLoad) {
+      setError(null);
+    }
 
     try {
-      // Fetch disk usage
-      const diskResult = await invoke<{
-        success: boolean;
-        output?: { stdout: string; stderr: string };
-        error?: string;
-      }>('execute_command', {
-        request: {
-          server_id: serverId,
-          command: 'df -h',
-          force_dangerous: false,
-        },
+      const snapshot = await invoke<ServerStatusSnapshot>('get_server_status', {
+        serverId,
       });
 
-      // Fetch memory usage
-      const memResult = await invoke<{
-        success: boolean;
-        output?: { stdout: string; stderr: string };
-        error?: string;
-      }>('execute_command', {
-        request: {
-          server_id: serverId,
-          command: 'free -m',
-          force_dangerous: false,
-        },
-      });
-
-      // Fetch network stats
-      const netResult = await invoke<{
-        success: boolean;
-        output?: { stdout: string; stderr: string };
-        error?: string;
-      }>('execute_command', {
-        request: {
-          server_id: serverId,
-          command: 'cat /proc/net/dev',
-          force_dangerous: false,
-        },
-      });
-
-      const disk = diskResult.success && diskResult.output ? parseDisk(diskResult.output.stdout) : [];
-      const memory = memResult.success && memResult.output ? parseMemory(memResult.output.stdout) : { total: 0, used: 0, free: 0, usePercent: 0 };
-      const network = netResult.success && netResult.output ? parseNetwork(netResult.output.stdout, prevNetworkRef.current) : [];
+      const disk = parseDisk(snapshot.disk_stdout);
+      const memory = parseMemory(snapshot.memory_stdout);
+      const network = parseNetwork(snapshot.network_stdout, prevNetworkRef.current);
 
       setStatus({ disk, memory, network, processes: [] });
+      setError(null);
+      hasLoadedRef.current = true;
     } catch (err) {
       console.error('Failed to fetch server status:', err);
-      setError('无法获取状态');
-    } finally {
-      setLoading(false);
+      if (!hasLoadedRef.current) {
+        setError('无法获取状态');
+      }
     }
   }, [serverId]);
 
-  // Poll status every 5 seconds when expanded
+  useEffect(() => {
+    hasLoadedRef.current = false;
+    setStatus(null);
+    setError(null);
+  }, [serverId]);
+
+  // Poll status in background when expanded
   useEffect(() => {
     if (isExpanded && serverId) {
       fetchStatus();
-      pollIntervalRef.current = setInterval(fetchStatus, 5000);
+      pollIntervalRef.current = setInterval(fetchStatus, 15000);
     }
 
     return () => {
@@ -150,7 +131,6 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
           <span className="status-subtitle">{serverName || '当前服务器'} · {serverHost || '未知地址'}</span>
         </div>
         <div className="status-header-meta">
-          {loading && <span className="status-loading">同步中</span>}
           {error && <span className="status-error">错误</span>}
           <span className="status-toggle">{isExpanded ? '收起' : '展开'}</span>
         </div>

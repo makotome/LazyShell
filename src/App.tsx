@@ -411,7 +411,7 @@ function App() {
       const remainingTabs = tabs.filter(t => t.id !== tabId);
       setActiveTabId(remainingTabs[0]?.id || null);
     }
-  }, [tabs, activeTabId]);
+  }, [activeTabId, tabs]);
 
   const handleNewTab = useCallback(() => {
     // If there are servers, open a dialog to select one

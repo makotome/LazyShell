@@ -1,4 +1,4 @@
-import { useMemo, memo, useState } from 'react';
+import { memo, useState } from 'react';
 import type { AIProviderManager } from '../providers/aiProvider';
 import type { ManagedProviderInfo } from '../providers/aiProvider';
 import { AddProviderModal } from './AddProviderModal';
@@ -8,17 +8,24 @@ interface ProviderSelectorProps {
 }
 
 export const ProviderSelector = memo(function ProviderSelector({ providerManager }: ProviderSelectorProps) {
-  const providers = useMemo(() => providerManager.getProviders(), [providerManager]);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ManagedProviderInfo | null>(null);
+  const providers = providerManager.getProviders();
+
+  const refreshView = () => {
+    setRefreshKey((prev) => prev + 1);
+  };
 
   const handleSelectProvider = (providerId: string) => {
     providerManager.setActiveProvider(providerId);
+    refreshView();
   };
 
   const handleDeleteProvider = (providerId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     providerManager.removeProvider(providerId);
+    refreshView();
   };
 
   const handleEditProvider = (provider: ManagedProviderInfo, e: React.MouseEvent) => {
@@ -49,8 +56,10 @@ export const ProviderSelector = memo(function ProviderSelector({ providerManager
         </div>
         {showAddModal && (
           <AddProviderModal
+            key={editingProvider?.id || `new-provider-${refreshKey}`}
             providerManager={providerManager}
             editingProvider={editingProvider}
+            onSaved={refreshView}
             onClose={handleCloseModal}
           />
         )}
@@ -102,8 +111,10 @@ export const ProviderSelector = memo(function ProviderSelector({ providerManager
 
       {showAddModal && (
         <AddProviderModal
+          key={editingProvider?.id || `new-provider-${refreshKey}`}
           providerManager={providerManager}
           editingProvider={editingProvider}
+          onSaved={refreshView}
           onClose={handleCloseModal}
         />
       )}

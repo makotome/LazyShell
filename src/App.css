@@ -705,7 +705,7 @@ body {
 }
 
 .message-role {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -715,8 +715,9 @@ body {
 
 .message-content {
   padding: 8px 10px;
-  border-radius: 8px;
-  line-height: 1.55;
+  border-radius: 7px;
+  line-height: 1.45;
+  font-size: 12px;
   box-shadow: none;
 }
 
@@ -725,7 +726,7 @@ body {
     linear-gradient(135deg, rgba(49, 196, 255, 0.95), rgba(14, 116, 144, 0.88)),
     var(--accent-gradient);
   color: white;
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: 4px;
 }
 
 .message-ai .message-content {
@@ -733,7 +734,7 @@ body {
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
     rgba(8, 17, 26, 0.92);
   color: var(--text-primary);
-  border-bottom-left-radius: 6px;
+  border-bottom-left-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
@@ -747,9 +748,9 @@ body {
   margin-top: 8px;
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.04);
-  border-radius: 8px;
+  border-radius: 6px;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--accent-primary);
   border: 1px solid rgba(49, 196, 255, 0.12);
 }
@@ -759,42 +760,42 @@ body {
     linear-gradient(180deg, rgba(255, 107, 107, 0.08), transparent 100%),
     rgba(12, 18, 25, 0.92);
   border: 1px solid rgba(255, 107, 107, 0.35);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 8px;
   margin: 8px 0;
   box-shadow: none;
 }
 
 .command-options {
-  margin: 10px 0;
-  padding: 8px;
+  margin: 8px 0;
+  padding: 7px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
     rgba(8, 16, 24, 0.94);
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow: none;
 }
 
 .options-header {
   font-weight: 700;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   color: var(--text-secondary);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .command-option {
-  padding: 12px;
-  margin: 8px 0;
+  padding: 8px;
+  margin: 6px 0;
   background: var(--bg-primary);
   border-radius: 6px;
   border: 1px solid var(--border-color);
 }
 
 .option-description {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
   margin-bottom: 8px;
 }
@@ -808,7 +809,7 @@ body {
 
 .option-command code {
   flex: 1;
-  padding: 8px 12px;
+  padding: 6px 8px;
   background: var(--bg-tertiary);
   border-radius: 4px;
   font-family: var(--font-mono);
@@ -816,7 +817,7 @@ body {
 }
 
 .option-reason {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
   margin-top: 6px;
 }
@@ -858,7 +859,7 @@ body {
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid rgba(49, 196, 255, 0.14);
   background:
     radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 46%),
@@ -875,7 +876,7 @@ body {
 }
 
 .chat-composer-kicker {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -883,7 +884,7 @@ body {
 }
 
 .chat-composer-context {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -895,10 +896,10 @@ body {
   flex: 1;
   padding: 8px 10px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  border-radius: 7px;
   background: rgba(5, 11, 18, 0.84);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
@@ -931,7 +932,7 @@ body {
   padding: 5px 8px;
   border-radius: 999px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.03em;
   transition: all 0.15s;
@@ -1179,7 +1180,7 @@ body {
 }
 
 .history-confirm-text {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-primary);
 }
 
@@ -1217,7 +1218,7 @@ body {
 
 .history-item {
   background: rgba(8, 16, 24, 0.9);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 8px;
   border-left: 3px solid var(--border-color);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1254,7 +1255,7 @@ body {
 }
 
 .history-content {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
   line-height: 1.4;
 }
@@ -1263,7 +1264,7 @@ body {
   background: var(--bg-tertiary);
   padding: 6px 8px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-family: var(--font-mono);
   margin-top: 8px;
   color: var(--accent-primary);
@@ -1297,7 +1298,7 @@ body {
   margin: 8px 0 10px;
   padding: 8px;
   border: 1px solid rgba(49, 196, 255, 0.12);
-  border-radius: 8px;
+  border-radius: 7px;
   background:
     radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 42%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
@@ -1315,14 +1316,14 @@ body {
 }
 
 .command-editor-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #f3f4f6;
   letter-spacing: 0.01em;
 }
 
 .command-editor-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   word-break: break-all;
 }
@@ -1333,17 +1334,17 @@ body {
   resize: vertical;
   padding: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: 7px;
   background: rgba(6, 14, 22, 0.88);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 /* Category Groups */
 .category-group {
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: 7px;
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 100%),
@@ -1374,7 +1375,7 @@ body {
 
 .category-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
 }
 
@@ -1399,7 +1400,7 @@ body {
     radial-gradient(circle at top right, rgba(49, 196, 255, 0.06), transparent 34%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
     var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 9px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -1435,7 +1436,7 @@ body {
 }
 
 .card-description {
-  font-size: 13px;
+  font-size: 12px;
   color: #d7e3ea;
   margin-bottom: 8px;
   line-height: 1.45;
@@ -1444,14 +1445,14 @@ body {
 .card-command {
   background: rgba(6, 12, 19, 0.8);
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: 6px;
   margin-bottom: 8px;
   border: 1px solid rgba(49, 196, 255, 0.1);
 }
 
 .card-command code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   color: #93c5fd;
   line-height: 1.5;
   word-break: break-word;
@@ -1475,7 +1476,7 @@ body {
 .card-edit-textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: 7px;
   background: rgba(6, 14, 22, 0.86);
   color: var(--text-primary);
   padding: 8px 10px;
@@ -1539,7 +1540,7 @@ body {
     radial-gradient(circle at top right, rgba(49, 196, 255, 0.06), transparent 34%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
     var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -1556,7 +1557,7 @@ body {
 .builtin-cmd-name {
   font-family: var(--font-mono);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 12px;
   color: #93c5fd;
   word-break: break-word;
 }
@@ -1570,7 +1571,7 @@ body {
 }
 
 .builtin-cmd-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: #d1d5db;
   margin-bottom: 8px;
   line-height: 1.4;
@@ -1579,7 +1580,7 @@ body {
 .builtin-cmd-example {
   background: rgba(6, 12, 19, 0.8);
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
@@ -1589,7 +1590,7 @@ body {
 
 .builtin-cmd-example code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--accent-primary);
 }
 
@@ -1759,7 +1760,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 8px 8px 10px;
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
   font-size: 13px;
@@ -1841,7 +1842,7 @@ body {
   margin: 0 8px 8px;
   padding: 8px;
   border: 1px solid rgba(49, 196, 255, 0.12);
-  border-radius: 8px;
+  border-radius: 7px;
   background:
     radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 38%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
@@ -1869,7 +1870,7 @@ body {
 .form-group textarea {
   padding: 7px 9px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: 7px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
     rgba(7, 17, 26, 0.88);
@@ -1909,7 +1910,7 @@ body {
 .btn {
   padding: 7px 10px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 7px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -1973,7 +1974,7 @@ body {
   border: none;
   color: var(--text-secondary);
   padding: 5px;
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
 }
@@ -2015,7 +2016,7 @@ body {
     radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 28%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
     rgba(8, 15, 22, 0.96);
-  border-radius: 12px;
+  border-radius: 8px;
   width: 90%;
   max-width: 560px;
   max-height: 80vh;
@@ -2055,7 +2056,7 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
-  border-radius: 8px 8px 0 0;
+  border-radius: 7px 7px 0 0;
 }
 
 .tab:hover {
@@ -2088,7 +2089,7 @@ body {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
     rgba(9, 18, 27, 0.82);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 10px;
   margin-bottom: 16px;
   display: flex;
@@ -2199,7 +2200,7 @@ body {
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
     rgba(8, 15, 22, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
+  border-radius: 8px;
   min-height: 40px;
   padding: 4px 6px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
@@ -2214,7 +2215,7 @@ body {
 }
 
 .tab-bar-kicker {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -2222,7 +2223,7 @@ body {
 }
 
 .tab-bar-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -2249,7 +2250,7 @@ body {
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
     rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
   min-width: 120px;
   max-width: 240px;
@@ -2280,7 +2281,7 @@ body {
 }
 
 .tab-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -2290,7 +2291,7 @@ body {
 }
 
 .tab-dir {
-  font-size: 11px;
+  font-size: 10px;
   color: #7e95a8;
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -2332,7 +2333,7 @@ body {
   line-height: 1;
   padding: 5px 8px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 7px;
   flex-shrink: 0;
 }
 
@@ -2369,7 +2370,7 @@ body {
   color: var(--text-muted);
   cursor: pointer;
   padding: 6px 7px;
-  border-radius: 8px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2481,7 +2482,7 @@ body {
   margin: 0 10px 10px;
   padding: 10px;
   border: 1px dashed rgba(49, 196, 255, 0.18);
-  border-radius: 8px;
+  border-radius: 7px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
     rgba(8, 16, 24, 0.72);
@@ -2506,7 +2507,7 @@ body {
   gap: 5px;
   padding: 6px 8px;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: 7px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 100%),
     rgba(7, 14, 21, 0.76);
@@ -2637,7 +2638,7 @@ body {
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: 7px;
 }
 
 .net-iface {
@@ -3077,6 +3078,18 @@ body {
   padding: 8px;
 }
 
+.terminal-stage.inactive {
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.terminal-stage.active {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 1;
+}
+
 .terminal-stage-header {
   display: flex;
   align-items: center;
@@ -3084,7 +3097,7 @@ body {
   gap: 8px;
   flex-shrink: 0;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   background:
     radial-gradient(circle at left, rgba(49, 196, 255, 0.08), transparent 28%),
@@ -3101,7 +3114,7 @@ body {
 }
 
 .terminal-stage-kicker {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -3109,7 +3122,7 @@ body {
 }
 
 .terminal-stage-label {
-  font-size: 11px;
+  font-size: 10px;
   font-family: var(--font-mono);
   color: var(--text-secondary);
   white-space: nowrap;
@@ -3148,7 +3161,7 @@ body {
     radial-gradient(circle at top, rgba(49, 196, 255, 0.05), transparent 24%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 10%),
     linear-gradient(180deg, #08121b 0%, #04090f 100%);
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid rgba(49, 196, 255, 0.1);
   overflow: hidden;
   box-shadow:
@@ -3170,9 +3183,55 @@ body {
   padding: 8px 8px 6px;
 }
 
+.terminal-reconnect-overlay {
+  position: absolute;
+  inset: 40px 8px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(4, 9, 15, 0.56);
+  backdrop-filter: blur(3px);
+  border-radius: 7px;
+  z-index: 2;
+}
+
+.terminal-reconnect-card {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(49, 196, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+    rgba(10, 18, 27, 0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 14px 36px rgba(0, 0, 0, 0.26);
+}
+
+.terminal-reconnect-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.terminal-reconnect-text {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.terminal-reconnect-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .terminal-xterm .xterm-viewport,
 .terminal-xterm .xterm-screen {
-  border-radius: 8px;
+  border-radius: 7px;
 }
 
 /* Command Card */

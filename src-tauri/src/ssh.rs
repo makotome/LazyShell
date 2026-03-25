@@ -684,6 +684,25 @@ pub struct PersistentShell {
 }
 
 impl PersistentShell {
+    fn is_recoverable_flow_error(err: &std::io::Error) -> bool {
+        if err.kind() == std::io::ErrorKind::WouldBlock
+            || err.kind() == std::io::ErrorKind::BrokenPipe
+            || err.kind() == std::io::ErrorKind::ConnectionReset
+            || err.kind() == std::io::ErrorKind::UnexpectedEof
+        {
+            return true;
+        }
+
+        let message = err.to_string().to_lowercase();
+        message.contains("draining incoming flow")
+            || message.contains("broken pipe")
+            || message.contains("connection reset")
+            || message.contains("channel closed")
+            || message.contains("socket disconnected")
+            || message.contains("transport")
+            || message.contains("eof")
+    }
+
     /// Helper method to establish an authenticated session
     fn establish_session(server_config: &ServerConfig) -> Result<Session, SSHError> {
         let tcp = TcpStream::connect(format!("{}:{}", server_config.host, server_config.port))
@@ -776,6 +795,10 @@ impl PersistentShell {
         match self.channel.write(data.as_bytes()) {
             Ok(_) => {}
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+            Err(e) if Self::is_recoverable_flow_error(&e) => {
+                self.pty_active = false;
+                return Err(SSHError::NotConnected);
+            }
             Err(e) => return Err(SSHError::IoError(e.to_string())),
         }
         // Don't call flush in non-blocking mode - it can cause "would block" errors
@@ -791,6 +814,10 @@ impl PersistentShell {
         match self.channel.read(buf) {
             Ok(n) => Ok(n),
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
+            Err(e) if Self::is_recoverable_flow_error(&e) => {
+                self.pty_active = false;
+                Err(SSHError::NotConnected)
+            }
             Err(e) => Err(SSHError::IoError(e.to_string())),
         }
     }
@@ -807,7 +834,19 @@ impl PersistentShell {
         }
         let (char_width, char_height) = Self::pty_pixels(rows, cols);
         self.channel.request_pty_size(cols as u32, rows as u32, Some(char_width), Some(char_height))
-            .map_err(|e: ssh2::Error| SSHError::ExecutionFailed(e.to_string()))?;
+            .map_err(|e: ssh2::Error| {
+                let message = e.to_string().to_lowercase();
+                if message.contains("channel closed")
+                    || message.contains("transport")
+                    || message.contains("eof")
+                    || message.contains("socket disconnected")
+                {
+                    self.pty_active = false;
+                    SSHError::NotConnected
+                } else {
+                    SSHError::ExecutionFailed(e.to_string())
+                }
+            })?;
         Ok(())
     }
 

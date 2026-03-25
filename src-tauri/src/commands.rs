@@ -99,6 +99,13 @@ pub struct CommandResult {
     pub requires_confirmation: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ServerStatusSnapshot {
+    pub disk_stdout: String,
+    pub memory_stdout: String,
+    pub network_stdout: String,
+}
+
 #[tauri::command]
 pub fn set_master_password(
     password: String,
@@ -365,26 +372,31 @@ pub fn execute_command(
         });
     }
 
-    // Try to use pooled session first, fall back to new connection
-    let output = match state.ssh_manager.get_session(&request.server_id) {
-        Ok(session) => {
-            SSHConnectionManager::execute_with_session(&session, &request.command)
-                .map_err(|e| e.to_string())?
-        }
-        Err(_) => {
-            // Fallback: create new connection for this command
-            let connections = state.ssh_manager.list_connections();
-            let config = connections.iter()
-                .find(|c| c.id == request.server_id)
-                .ok_or("Server not found")?
-                .clone();
+    let execute_with_fresh_connection = || -> Result<CommandOutput, String> {
+        let connections = state.ssh_manager.list_connections();
+        let config = connections.iter()
+            .find(|c| c.id == request.server_id)
+            .ok_or("Server not found")?
+            .clone();
 
-            let mut conn = SSHConnection::new(config);
-            conn.connect().map_err(|e| e.to_string())?;
-            let output = conn.execute(&request.command).map_err(|e| e.to_string())?;
-            conn.disconnect();
-            output
-        }
+        let mut conn = SSHConnection::new(config);
+        conn.connect().map_err(|e| e.to_string())?;
+        let output = conn.execute(&request.command).map_err(|e| e.to_string())?;
+        conn.disconnect();
+        Ok(output)
+    };
+
+    // Try pooled session first. If the pooled session is stale or channel-open fails,
+    // drop it and fall back to a fresh one-off connection instead of surfacing the error.
+    let output = match state.ssh_manager.get_session(&request.server_id) {
+        Ok(session) => match SSHConnectionManager::execute_with_session(&session, &request.command) {
+            Ok(output) => output,
+            Err(_) => {
+                let _ = state.ssh_manager.close_session(&request.server_id);
+                execute_with_fresh_connection()?
+            }
+        },
+        Err(_) => execute_with_fresh_connection()?,
     };
 
     Ok(CommandResult {
@@ -392,6 +404,53 @@ pub fn execute_command(
         output: Some(output),
         error: None,
         requires_confirmation: false,
+    })
+}
+
+#[tauri::command]
+pub fn get_server_status(
+    server_id: String,
+    state: State<AppState>,
+) -> Result<ServerStatusSnapshot, String> {
+    let connections = state.ssh_manager.list_connections();
+    let config = connections.iter()
+        .find(|c| c.id == server_id)
+        .ok_or("Server not found")?
+        .clone();
+
+    let mut conn = SSHConnection::new(config);
+    conn.connect().map_err(|e| e.to_string())?;
+
+    let disk_stdout = match conn.execute("df -h") {
+        Ok(output) => output.stdout,
+        Err(err) => {
+            conn.disconnect();
+            return Err(err.to_string());
+        }
+    };
+
+    let memory_stdout = match conn.execute("free -m") {
+        Ok(output) => output.stdout,
+        Err(err) => {
+            conn.disconnect();
+            return Err(err.to_string());
+        }
+    };
+
+    let network_stdout = match conn.execute("cat /proc/net/dev") {
+        Ok(output) => output.stdout,
+        Err(err) => {
+            conn.disconnect();
+            return Err(err.to_string());
+        }
+    };
+
+    conn.disconnect();
+
+    Ok(ServerStatusSnapshot {
+        disk_stdout,
+        memory_stdout,
+        network_stdout,
     })
 }
 

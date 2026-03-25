@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import './UnlockScreen.css';
 
@@ -14,7 +14,7 @@ export function UnlockScreen({ onUnlock }: UnlockScreenProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   // Check if master password exists on mount
-  useState(() => {
+  useEffect(() => {
     invoke<boolean>('has_master_password')
       .then(hasPassword => {
         setIsSetupMode(!hasPassword);
@@ -22,7 +22,7 @@ export function UnlockScreen({ onUnlock }: UnlockScreenProps) {
       .catch(() => {
         setIsSetupMode(true);
       });
-  });
+  }, []);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();

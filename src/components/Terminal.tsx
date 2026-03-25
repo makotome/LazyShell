@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from 'xterm';
@@ -14,6 +14,8 @@ interface TerminalProps {
 }
 
 export function Terminal({ tabId, serverId, isActive, onCommandObserved }: TerminalProps) {
+  const BACKGROUND_RECONNECT_THRESHOLD_MS = 60_000;
+  const ACTIVE_IDLE_RECONNECT_THRESHOLD_MS = 5 * 60_000;
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -22,10 +24,54 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
   const recoveringSessionRef = useRef(false);
   const commandBufferRef = useRef('');
   const isActiveRef = useRef(isActive);
+  const inactiveSinceRef = useRef<number | null>(null);
+  const lastInactiveDurationRef = useRef(0);
+  const previousIsActiveRef = useRef(isActive);
+  const pendingOutputRef = useRef('');
+  const flushScheduledRef = useRef(false);
+  const lastActivityAtRef = useRef(Date.now());
+  const reconnectPromptRef = useRef<null | {
+    reason: 'background_timeout' | 'idle_timeout' | 'connection_error';
+    message: string;
+  }>(null);
+  const [reconnectPrompt, setReconnectPrompt] = useState<null | {
+    reason: 'background_timeout' | 'idle_timeout' | 'connection_error';
+    message: string;
+  }>(null);
 
   useEffect(() => {
     isActiveRef.current = isActive;
+    const wasActive = previousIsActiveRef.current;
+
+    if (!isActive && wasActive) {
+      inactiveSinceRef.current = Date.now();
+    }
+
+    if (isActive && !wasActive) {
+      lastInactiveDurationRef.current = inactiveSinceRef.current
+        ? Date.now() - inactiveSinceRef.current
+        : 0;
+      inactiveSinceRef.current = null;
+    }
+
+    previousIsActiveRef.current = isActive;
   }, [isActive]);
+
+  useEffect(() => {
+    reconnectPromptRef.current = reconnectPrompt;
+  }, [reconnectPrompt]);
+
+  const isRecoverableShellError = useCallback((err: unknown) => {
+    const message = String(err);
+    return (
+      message.includes('Not connected') ||
+      message.includes('Failure while draining incoming flow') ||
+      message.includes('Broken pipe') ||
+      message.includes('Socket disconnected') ||
+      message.includes('transport') ||
+      message.includes('channel closed')
+    );
+  }, []);
 
   const ensureSession = useCallback(async () => {
     if (recoveringSessionRef.current) {
@@ -36,12 +82,14 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
     const { rows, cols } = terminalSizeRef.current;
 
     try {
+      await invoke('close_shell_session', { tabId }).catch(() => {});
       await invoke('create_shell_session', {
         serverId,
         tabId,
         rows,
         cols,
       });
+      lastActivityAtRef.current = Date.now();
       return true;
     } catch (err) {
       console.error('Failed to recreate shell session:', err);
@@ -52,21 +100,84 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
   }, [serverId, tabId]);
 
   const sendInput = useCallback((data: string) => {
+    if (reconnectPrompt) {
+      return;
+    }
+
+    const idleDuration = Date.now() - lastActivityAtRef.current;
+    if (idleDuration > ACTIVE_IDLE_RECONNECT_THRESHOLD_MS) {
+      setReconnectPrompt({
+        reason: 'idle_timeout',
+        message: '终端长时间空闲后可能已失效，请先手动重连。',
+      });
+      return;
+    }
+
     invoke('shell_input', { tabId, data }).catch(async (err) => {
-      const message = String(err);
-      if (message.includes('Not connected')) {
-        const recovered = await ensureSession();
-        if (recovered) {
-          invoke('shell_input', { tabId, data }).catch(console.error);
-        }
+      if (isRecoverableShellError(err)) {
+        setReconnectPrompt({
+          reason: 'connection_error',
+          message: '终端连接已失效，请手动重连后继续操作。',
+        });
         return;
       }
       console.error(err);
     });
-  }, [ensureSession, tabId]);
+  }, [ACTIVE_IDLE_RECONNECT_THRESHOLD_MS, isRecoverableShellError, reconnectPrompt, tabId]);
 
   const focusTerminal = useCallback(() => {
     xtermRef.current?.focus();
+  }, []);
+
+  const handleReconnect = useCallback(async () => {
+    xtermRef.current?.clear();
+    xtermRef.current?.reset();
+    const recovered = await ensureSession();
+    if (!recovered) {
+      setReconnectPrompt({
+        reason: 'connection_error',
+        message: '重连失败，请稍后重试。',
+      });
+      return;
+    }
+
+    pendingOutputRef.current = '';
+    flushScheduledRef.current = false;
+    lastActivityAtRef.current = Date.now();
+    setReconnectPrompt(null);
+    focusTerminal();
+  }, [ensureSession, focusTerminal]);
+
+  const flushPendingOutput = useCallback(() => {
+    if (flushScheduledRef.current || !isActiveRef.current || !xtermRef.current) {
+      return;
+    }
+    flushScheduledRef.current = true;
+
+    const flushChunk = () => {
+      if (!isActiveRef.current || !xtermRef.current) {
+        flushScheduledRef.current = false;
+        return;
+      }
+
+      if (!pendingOutputRef.current) {
+        flushScheduledRef.current = false;
+        return;
+      }
+
+      const chunk = pendingOutputRef.current.slice(0, 8192);
+      pendingOutputRef.current = pendingOutputRef.current.slice(chunk.length);
+      xtermRef.current.write(chunk);
+      lastActivityAtRef.current = Date.now();
+
+      if (pendingOutputRef.current) {
+        window.setTimeout(flushChunk, 16);
+      } else {
+        flushScheduledRef.current = false;
+      }
+    };
+
+    window.setTimeout(flushChunk, 0);
   }, []);
 
   const trackObservedCommand = useCallback((data: string) => {
@@ -110,7 +221,6 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
   // Initialize xterm
   useEffect(() => {
     if (!terminalRef.current) return;
-
     // Create xterm instance
     const xterm = new XTerm({
       fontSize: 14,
@@ -151,6 +261,27 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
 
     xterm.open(terminalRef.current);
     fitAddon.fit();
+
+    xterm.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown' || !isActiveRef.current) {
+        return true;
+      }
+
+      if (reconnectPromptRef.current) {
+        return false;
+      }
+
+      const idleDuration = Date.now() - lastActivityAtRef.current;
+      if (idleDuration <= ACTIVE_IDLE_RECONNECT_THRESHOLD_MS) {
+        return true;
+      }
+
+      setReconnectPrompt({
+        reason: 'idle_timeout',
+        message: '终端长时间空闲后可能已失效，请先手动重连。',
+      });
+      return false;
+    });
 
     xtermRef.current = xterm;
     fitAddonRef.current = fitAddon;
@@ -198,14 +329,56 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
       return;
     }
 
-    fitAddonRef.current.fit();
-    xtermRef.current.focus();
+    const activateTerminal = async () => {
+      if (!xtermRef.current || !fitAddonRef.current) {
+        return;
+      }
 
-    const rows = xtermRef.current.rows;
-    const cols = xtermRef.current.cols;
-    terminalSizeRef.current = { rows, cols };
-    invoke('shell_resize', { tabId, rows, cols }).catch(() => {});
-  }, [isActive, tabId]);
+      const inactiveDuration = lastInactiveDurationRef.current;
+
+      try {
+        if (inactiveDuration > BACKGROUND_RECONNECT_THRESHOLD_MS) {
+          setReconnectPrompt({
+            reason: 'background_timeout',
+            message: '终端在后台停留较久，建议先重连再继续使用。',
+          });
+          return;
+        } else {
+          const isAlive = await invoke<boolean>('shell_is_alive', { tabId });
+          if (!isAlive) {
+            setReconnectPrompt({
+              reason: 'connection_error',
+              message: '终端连接已失效，请手动重连后继续使用。',
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        if (isRecoverableShellError(err)) {
+          setReconnectPrompt({
+            reason: 'connection_error',
+            message: '终端连接检查失败，请手动重连后继续使用。',
+          });
+          return;
+        }
+      }
+
+      if (!xtermRef.current || !fitAddonRef.current || !isActiveRef.current) {
+        return;
+      }
+
+      fitAddonRef.current.fit();
+      xtermRef.current.focus();
+
+      const rows = xtermRef.current.rows;
+      const cols = xtermRef.current.cols;
+      terminalSizeRef.current = { rows, cols };
+      invoke('shell_resize', { tabId, rows, cols }).catch(() => {});
+      flushPendingOutput();
+    };
+
+    activateTerminal().catch(console.error);
+  }, [BACKGROUND_RECONNECT_THRESHOLD_MS, flushPendingOutput, isActive, isRecoverableShellError, tabId]);
 
   // Handle terminal input
   useEffect(() => {
@@ -258,36 +431,62 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
   }, []);
 
   // Poll for output using sequential setTimeout to prevent race conditions
-  const POLL_INTERVAL_MS = 33; // ~30fps, balances responsiveness and CPU
+  const ACTIVE_POLL_INTERVAL_MS = 33;
+  const INACTIVE_POLL_INTERVAL_MS = 200;
 
   useEffect(() => {
-    if (!xtermRef.current || !isActive) return;
+    if (!xtermRef.current) return;
 
     const xterm = xtermRef.current;
     let cancelled = false;
     let timeoutId: number | null = null;
-    recoveringSessionRef.current = false;
 
     const poll = async () => {
       if (cancelled) return;
       try {
         const output = await invoke<string>('shell_output', { tabId });
         if (output) {
-          xterm.write(output);
+          lastActivityAtRef.current = Date.now();
+          if (isActiveRef.current) {
+            if (pendingOutputRef.current) {
+              pendingOutputRef.current += output;
+              flushPendingOutput();
+            } else {
+              xterm.write(output);
+            }
+          } else {
+            pendingOutputRef.current += output;
+            if (pendingOutputRef.current.length > 1024 * 1024) {
+              pendingOutputRef.current = pendingOutputRef.current.slice(-512 * 1024);
+            }
+          }
         }
       } catch (err) {
-        if (!String(err).includes('Not connected')) {
+        if (isRecoverableShellError(err)) {
+          if (isActiveRef.current) {
+            setReconnectPrompt((current) => current ?? {
+              reason: 'connection_error',
+              message: '终端连接已失效，请手动重连后继续使用。',
+            });
+          }
+        } else {
           console.error('Failed to read shell output:', err);
         }
       }
       // Schedule next poll only after current one completes
       if (!cancelled) {
-        timeoutId = window.setTimeout(poll, POLL_INTERVAL_MS);
+        timeoutId = window.setTimeout(
+          poll,
+          isActiveRef.current ? ACTIVE_POLL_INTERVAL_MS : INACTIVE_POLL_INTERVAL_MS
+        );
       }
     };
 
     // Start sequential polling
-    timeoutId = window.setTimeout(poll, POLL_INTERVAL_MS);
+    timeoutId = window.setTimeout(
+      poll,
+      isActiveRef.current ? ACTIVE_POLL_INTERVAL_MS : INACTIVE_POLL_INTERVAL_MS
+    );
 
     return () => {
       cancelled = true;
@@ -295,7 +494,7 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
         window.clearTimeout(timeoutId);
       }
     };
-  }, [isActive, tabId]);
+  }, [flushPendingOutput, isRecoverableShellError, tabId]);
 
   const handleContextMenu = useCallback(async (e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -329,6 +528,23 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
         onClick={focusTerminal}
         onContextMenu={handleContextMenu}
       />
+      {isActive && reconnectPrompt && (
+        <div className="terminal-reconnect-overlay">
+          <div className="terminal-reconnect-card">
+            <div className="terminal-reconnect-title">终端需要重连</div>
+            <div className="terminal-reconnect-text">{reconnectPrompt.message}</div>
+            <div className="terminal-reconnect-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-small"
+                onClick={() => { void handleReconnect(); }}
+              >
+                立即重连
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
