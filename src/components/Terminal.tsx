@@ -5,6 +5,7 @@ import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { openFileBrowserWindow } from '../utils/remoteWindows';
+import type { PendingAiTerminalExecution } from '../types';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -13,9 +14,23 @@ interface TerminalProps {
   serverName: string;
   currentDir: string;
   isActive: boolean;
+  pendingAiExecution?: PendingAiTerminalExecution | null;
+  onPendingAiExecutionConsumed?: (tabId: string, executionId: string) => void;
 }
 
-export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: TerminalProps) {
+const FEEDBACK_BEGIN = '__LS_AI_BEGIN__';
+const FEEDBACK_END = '__LS_AI_END__';
+const MARKER_TAIL_LENGTH = 160;
+
+export function Terminal({
+  tabId,
+  serverId,
+  serverName,
+  currentDir,
+  isActive,
+  pendingAiExecution,
+  onPendingAiExecutionConsumed,
+}: TerminalProps) {
   const BACKGROUND_RECONNECT_THRESHOLD_MS = 60_000;
   const ACTIVE_IDLE_RECONNECT_THRESHOLD_MS = 5 * 60_000;
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -35,6 +50,16 @@ export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: 
     reason: 'background_timeout' | 'idle_timeout' | 'connection_error';
     message: string;
   }>(null);
+  const pendingAiExecutionRef = useRef<PendingAiTerminalExecution | null>(pendingAiExecution || null);
+  const feedbackStreamStateRef = useRef<{
+    buffer: string;
+    activeId: string | null;
+    capturedOutput: string;
+  }>({
+    buffer: '',
+    activeId: null,
+    capturedOutput: '',
+  });
   const [reconnectPrompt, setReconnectPrompt] = useState<null | {
     reason: 'background_timeout' | 'idle_timeout' | 'connection_error';
     message: string;
@@ -61,6 +86,10 @@ export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: 
   useEffect(() => {
     reconnectPromptRef.current = reconnectPrompt;
   }, [reconnectPrompt]);
+
+  useEffect(() => {
+    pendingAiExecutionRef.current = pendingAiExecution || null;
+  }, [pendingAiExecution]);
 
   const isRecoverableShellError = useCallback((err: unknown) => {
     const message = String(err);
@@ -180,6 +209,121 @@ export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: 
 
     window.setTimeout(flushChunk, 0);
   }, []);
+
+  const flushTerminalOutput = useCallback((output: string) => {
+    if (!output) {
+      return;
+    }
+    if (isActiveRef.current && xtermRef.current) {
+      if (pendingOutputRef.current) {
+        pendingOutputRef.current += output;
+        flushPendingOutput();
+      } else {
+        xtermRef.current.write(output);
+      }
+    } else {
+      pendingOutputRef.current += output;
+      if (pendingOutputRef.current.length > 1024 * 1024) {
+        pendingOutputRef.current = pendingOutputRef.current.slice(-512 * 1024);
+      }
+    }
+  }, [flushPendingOutput]);
+
+  const finalizeFeedbackCapture = useCallback(async (exitCode: number) => {
+    const execution = pendingAiExecutionRef.current;
+    const capture = feedbackStreamStateRef.current;
+    if (!execution || capture.activeId !== execution.id) {
+      capture.activeId = null;
+      capture.capturedOutput = '';
+      return;
+    }
+
+    const combined = capture.capturedOutput;
+    capture.activeId = null;
+    capture.capturedOutput = '';
+    pendingAiExecutionRef.current = null;
+    onPendingAiExecutionConsumed?.(tabId, execution.id);
+
+    await invoke('record_execution_feedback', {
+      request: {
+        serverId: serverId,
+        userIntent: execution.userIntent,
+        suggestedCommand: execution.suggestedCommand,
+        finalCommand: execution.finalCommand,
+        currentDir: execution.currentDir || currentDir,
+        stdout: combined,
+        stderr: '',
+        exitCode,
+        source: 'terminal',
+      },
+    }).catch(err => {
+      console.error('Failed to record PTY execution feedback:', err);
+    });
+  }, [currentDir, onPendingAiExecutionConsumed, serverId, tabId]);
+
+  const processFeedbackChunk = useCallback((chunk: string): string => {
+    const state = feedbackStreamStateRef.current;
+    state.buffer += chunk;
+    let visible = '';
+
+    while (state.buffer.length > 0) {
+      if (!state.activeId) {
+        const beginIndex = state.buffer.indexOf(FEEDBACK_BEGIN);
+        if (beginIndex === -1) {
+          if (!pendingAiExecutionRef.current) {
+            visible += state.buffer;
+            state.buffer = '';
+            break;
+          }
+          if (state.buffer.length > MARKER_TAIL_LENGTH) {
+            const flushText = state.buffer.slice(0, state.buffer.length - MARKER_TAIL_LENGTH);
+            visible += flushText;
+            state.buffer = state.buffer.slice(state.buffer.length - MARKER_TAIL_LENGTH);
+          }
+          break;
+        }
+
+        visible += state.buffer.slice(0, beginIndex);
+        state.buffer = state.buffer.slice(beginIndex);
+        const beginMatch = state.buffer.match(/^__LS_AI_BEGIN__([A-Za-z0-9-]+)__\r?\n/);
+        if (!beginMatch) {
+          break;
+        }
+
+        state.activeId = beginMatch[1];
+        state.capturedOutput = '';
+        state.buffer = state.buffer.slice(beginMatch[0].length);
+        continue;
+      }
+
+      const endPrefix = `${FEEDBACK_END}${state.activeId}__:`; 
+      const endIndex = state.buffer.indexOf(endPrefix);
+      if (endIndex === -1) {
+        if (state.buffer.length > MARKER_TAIL_LENGTH) {
+          const flushText = state.buffer.slice(0, state.buffer.length - MARKER_TAIL_LENGTH);
+          visible += flushText;
+          state.capturedOutput += flushText;
+          state.buffer = state.buffer.slice(state.buffer.length - MARKER_TAIL_LENGTH);
+        }
+        break;
+      }
+
+      const beforeEnd = state.buffer.slice(0, endIndex);
+      visible += beforeEnd;
+      state.capturedOutput += beforeEnd;
+      state.buffer = state.buffer.slice(endIndex);
+      const endMatch = state.buffer.match(/^__LS_AI_END__([A-Za-z0-9-]+)__:(-?\d+)\r?\n/);
+      if (!endMatch) {
+        break;
+      }
+
+      const exitCode = Number.parseInt(endMatch[2], 10);
+      state.buffer = state.buffer.slice(endMatch[0].length);
+      void finalizeFeedbackCapture(exitCode);
+    }
+
+    return visible;
+  }, [finalizeFeedbackCapture]);
 
   // Initialize xterm
   useEffect(() => {
@@ -398,8 +542,6 @@ export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: 
 
   useEffect(() => {
     if (!xtermRef.current) return;
-
-    const xterm = xtermRef.current;
     let cancelled = false;
     let timeoutId: number | null = null;
 
@@ -409,19 +551,8 @@ export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: 
         const output = await invoke<string>('shell_output', { tabId });
         if (output) {
           lastActivityAtRef.current = Date.now();
-          if (isActiveRef.current) {
-            if (pendingOutputRef.current) {
-              pendingOutputRef.current += output;
-              flushPendingOutput();
-            } else {
-              xterm.write(output);
-            }
-          } else {
-            pendingOutputRef.current += output;
-            if (pendingOutputRef.current.length > 1024 * 1024) {
-              pendingOutputRef.current = pendingOutputRef.current.slice(-512 * 1024);
-            }
-          }
+          const visibleOutput = processFeedbackChunk(output);
+          flushTerminalOutput(visibleOutput);
         }
       } catch (err) {
         if (isRecoverableShellError(err)) {
@@ -456,7 +587,7 @@ export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: 
         window.clearTimeout(timeoutId);
       }
     };
-  }, [flushPendingOutput, isRecoverableShellError, tabId]);
+  }, [flushTerminalOutput, isRecoverableShellError, processFeedbackChunk, tabId]);
 
   const handleContextMenu = useCallback(async (e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();

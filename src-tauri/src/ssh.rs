@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use chrono::Local;
@@ -684,6 +685,9 @@ pub struct PersistentShell {
 }
 
 impl PersistentShell {
+    const WRITE_RETRY_LIMIT: usize = 32;
+    const WRITE_RETRY_DELAY_US: u64 = 500;
+
     fn is_recoverable_flow_error(err: &std::io::Error) -> bool {
         if err.kind() == std::io::ErrorKind::WouldBlock
             || err.kind() == std::io::ErrorKind::BrokenPipe
@@ -791,18 +795,41 @@ impl PersistentShell {
         if !self.pty_active {
             return Err(SSHError::NotConnected);
         }
-        // Write data to the channel
-        match self.channel.write(data.as_bytes()) {
-            Ok(_) => {}
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
-            Err(e) if Self::is_recoverable_flow_error(&e) => {
-                self.pty_active = false;
-                return Err(SSHError::NotConnected);
+
+        let bytes = data.as_bytes();
+        let mut written = 0usize;
+        let mut retries = 0usize;
+
+        while written < bytes.len() {
+            match self.channel.write(&bytes[written..]) {
+                Ok(0) => {
+                    retries += 1;
+                }
+                Ok(n) => {
+                    written += n;
+                    retries = 0;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    retries += 1;
+                }
+                Err(e) if Self::is_recoverable_flow_error(&e) => {
+                    self.pty_active = false;
+                    return Err(SSHError::NotConnected);
+                }
+                Err(e) => return Err(SSHError::IoError(e.to_string())),
             }
-            Err(e) => return Err(SSHError::IoError(e.to_string())),
+
+            if written >= bytes.len() {
+                break;
+            }
+
+            if retries >= Self::WRITE_RETRY_LIMIT {
+                return Err(SSHError::IoError("Timed out while writing full PTY input".to_string()));
+            }
+
+            std::thread::sleep(Duration::from_micros(Self::WRITE_RETRY_DELAY_US));
         }
-        // Don't call flush in non-blocking mode - it can cause "would block" errors
-        // The data will be flushed when the internal buffer is full or on next read
+
         Ok(())
     }
 

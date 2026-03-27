@@ -32,6 +32,18 @@ export interface AIResponse {
   intent: 'single' | 'multiple' | 'clarification';
 }
 
+export interface AiDecision {
+  mode: 'answer' | 'command' | 'inspect_then_command' | 'clarification';
+  intent: 'single' | 'multiple' | 'clarification';
+  responseText: string;
+  command?: string;
+  options: AICommandOption[];
+  riskLevel: DangerLevel;
+  reasoningSummary?: string;
+  retrievedMemoryIds: string[];
+  sourceLabels: string[];
+}
+
 export interface TerminalContext {
   currentDir: string;
   recentCommands: CommandHistory[];
@@ -144,13 +156,47 @@ export interface CommandCard {
   lastUsed: number;
 }
 
-export interface LearningDataEntry {
+export interface ExecutionExperience {
   id: string;
-  natural_language: string;
-  command: string;
-  server_os: string;
-  usage_count: number;
-  last_used: number;
+  serverId: string;
+  userIntent: string;
+  suggestedCommand?: string;
+  finalCommand: string;
+  userModified: boolean;
+  currentDir?: string;
+  stdoutSummary: string;
+  stderrSummary: string;
+  exitCode?: number;
+  success: boolean;
+  failureKind?: string;
+  riskLevel: DangerLevel;
+  source: string;
+  createdAt: number;
+}
+
+export interface MemoryItem {
+  id: string;
+  kind: 'task' | 'environment' | 'preference' | 'failure_case' | 'success_case' | string;
+  summary: string;
+  tags: string[];
+  serverId?: string;
+  relatedCommand?: string;
+  score: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RecordExecutionFeedbackRequest {
+  serverId: string;
+  userIntent: string;
+  suggestedCommand?: string;
+  finalCommand: string;
+  currentDir?: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  source?: string;
+  riskLevel?: DangerLevel;
 }
 
 export interface DiskUsage {
@@ -200,6 +246,14 @@ export interface ServerTab {
   serverName: string;
   currentDir: string;
   previousDir?: string;
+}
+
+export interface PendingAiTerminalExecution {
+  id: string;
+  userIntent: string;
+  suggestedCommand: string;
+  finalCommand: string;
+  currentDir: string;
 }
 
 export interface RemoteEntry {

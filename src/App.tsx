@@ -10,7 +10,7 @@ import { TabBar } from './components/TabBar';
 import { ServerStatus } from './components/ServerStatus';
 import { UnlockScreen } from './components/UnlockScreen';
 import { useCommandDatabase } from './hooks/useCommandDatabase';
-import type { ServerInfo, CommandHistory, CommandHistoryFile, TerminalContext, CommandOutput, ServerTab, LayoutMode } from './types';
+import type { ServerInfo, CommandHistory, CommandHistoryFile, TerminalContext, CommandOutput, ServerTab, LayoutMode, PendingAiTerminalExecution } from './types';
 import './App.css';
 
 function normalizePosixPath(path: string): string {
@@ -101,6 +101,7 @@ function App() {
   const [aiSectionWidth, setAiSectionWidth] = useState(350);
   const [isLocked, setIsLocked] = useState(true);
   const [shellSessions, setShellSessions] = useState<Record<string, boolean>>({});
+  const [pendingAiExecutions, setPendingAiExecutions] = useState<Record<string, PendingAiTerminalExecution | null>>({});
   const isDraggingRef = useRef(false);
   const recentHistoryWriteRef = useRef<Record<string, { command: string; timestamp: number }>>({});
   const shellSessionsRef = useRef<Record<string, boolean>>({});
@@ -275,7 +276,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [tabs]);
 
-  const handleCommandSubmit = useCallback(async (command: string) => {
+  const handleCommandSubmit = useCallback(async (command: string, naturalLanguage?: string) => {
     if (!activeTab) {
       setCurrentOutputMap(prev => ({ ...prev, [activeTabId || '']: '错误: 请先选择一台服务器' }));
       return;
@@ -312,6 +313,25 @@ function App() {
         appendHistoryEntry(activeTab.id, activeTab.serverId, historyEntry);
         setCurrentOutputMap(prev => ({ ...prev, [activeTab.id]: '' }));
 
+        if (naturalLanguage?.trim()) {
+          invoke('record_execution_feedback', {
+            request: {
+              serverId: activeTab.serverId,
+              userIntent: naturalLanguage,
+              suggestedCommand: command,
+              finalCommand: command,
+              currentDir: activeTab.currentDir,
+              stdout: result.output.stdout,
+              stderr: result.output.stderr,
+              exitCode: result.output.exit_code,
+              source: 'direct',
+              riskLevel: result.output.is_dangerous ? 'red' : 'yellow',
+            },
+          }).catch(err => {
+            console.error('Failed to record execution feedback:', err);
+          });
+        }
+
         // Update current directory if the command changed it
         const nextDirectory = resolveNextDirectory(command, activeTab.currentDir, activeTab.previousDir);
         if (nextDirectory) {
@@ -327,7 +347,11 @@ function App() {
     }
   }, [activeTab, activeTabId, appendHistoryEntry]);
 
-  const handleTerminalExecute = useCallback((command: string, source: CommandHistory['source'] = 'terminal') => {
+  const handleTerminalExecute = useCallback((
+    command: string,
+    source: CommandHistory['source'] = 'terminal',
+    _feedback?: { userIntent: string; suggestedCommand?: string }
+  ) => {
     if (!activeTabId || !activeTab) return;
 
     invoke('shell_input', { tabId: activeTabId, data: `${command}\r` }).catch(err => {
@@ -376,6 +400,19 @@ function App() {
       [activeTab.id]: [],
     }));
   }, [activeTab]);
+
+  const handlePendingAiExecutionConsumed = useCallback((tabId: string, executionId: string) => {
+    setPendingAiExecutions(prev => {
+      const current = prev[tabId];
+      if (!current || current.id !== executionId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [tabId]: null,
+      };
+    });
+  }, []);
 
   const handleServerSelect = useCallback(async (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
@@ -445,6 +482,11 @@ function App() {
     });
 
     setTabs(prev => prev.filter(t => t.id !== tabId));
+    setPendingAiExecutions(prev => {
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
 
     // Clean up state for closed tab
     setCommandHistoryMap(prev => {
@@ -612,6 +654,8 @@ function App() {
                   serverName={tab.serverName}
                   currentDir={tab.currentDir}
                   isActive={tab.id === activeTabId}
+                  pendingAiExecution={pendingAiExecutions[tab.id]}
+                  onPendingAiExecutionConsumed={handlePendingAiExecutionConsumed}
                 />
               ))}
             </div>

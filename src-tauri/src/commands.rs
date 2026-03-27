@@ -1,4 +1,5 @@
 use crate::crypto::{auth_file_exists, decrypt_server_config, encrypt_server_config, verify_password, setup_password};
+use crate::learning;
 use crate::memory;
 use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, PersistentShell, ServerBanner, ServerConfig, SSHConnection, SSHConnectionManager};
 use serde::{Deserialize, Serialize};
@@ -658,11 +659,19 @@ pub fn get_server_status(
 
     conn.disconnect();
 
-    Ok(ServerStatusSnapshot {
+    let snapshot = ServerStatusSnapshot {
         disk_stdout,
         memory_stdout,
         network_stdout,
-    })
+    };
+    let _ = learning::update_server_environment_profile_from_status(
+        &server_id,
+        &snapshot.disk_stdout,
+        &snapshot.memory_stdout,
+        &snapshot.network_stdout,
+    );
+
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -815,7 +824,14 @@ pub fn get_server_banner(
         .clone();
 
     let mut conn = SSHConnection::new(config);
-    conn.get_banner().map_err(|e| e.to_string())
+    let banner = conn.get_banner().map_err(|e| e.to_string())?;
+    let _ = learning::update_server_environment_profile_from_banner(
+        &server_id,
+        &banner.hostname,
+        &banner.os_info,
+        &banner.distro_info,
+    );
+    Ok(banner)
 }
 
 #[tauri::command]

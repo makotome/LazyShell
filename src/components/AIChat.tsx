@@ -2,15 +2,14 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type {
   ChatMessage,
-  AIResponse,
   TerminalContext,
-  LearningDataEntry,
   BuiltinCommand,
   AICommandOption,
   CommandCard,
   CommandCategory,
   CommandDatabase,
   CommandHistory,
+  AiDecision,
 } from '../types';
 import { AIProviderManager } from '../providers/aiProvider';
 import { useMemory } from '../hooks/useMemory';
@@ -29,7 +28,11 @@ interface AIChatProps {
   serverId: string;
   commandHistory: CommandHistory[];
   onCommandExecute: (command: string, naturalLanguage?: string) => void;
-  onTerminalExecute: (command: string, source?: CommandHistory['source']) => void;
+  onTerminalExecute: (
+    command: string,
+    source?: CommandHistory['source'],
+    feedback?: { userIntent: string; suggestedCommand?: string }
+  ) => void;
   onCommandHistoryReload: () => Promise<void>;
   onCommandHistoryClear: () => void;
   commandDb?: {
@@ -45,39 +48,6 @@ interface PendingActionState {
   options?: PendingActionOption[];
   source: 'ai';
   dangerLevel: CommandCard['dangerLevel'];
-}
-
-function normalizeAIResponse(raw: AIResponse): AIResponse {
-  const explanation = raw.explanation?.trim() || '';
-
-  if (!explanation) {
-    return raw;
-  }
-
-  const fencedMatch = explanation.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const jsonCandidate = fencedMatch?.[1]?.trim()
-    || ((explanation.startsWith('{') && explanation.endsWith('}')) ? explanation : '');
-
-  if (!jsonCandidate) {
-    return raw;
-  }
-
-  try {
-    const parsed = JSON.parse(jsonCandidate) as AIResponse;
-    if (!parsed || typeof parsed !== 'object' || !parsed.intent) {
-      return raw;
-    }
-
-    return {
-      command: parsed.command,
-      explanation: parsed.explanation,
-      isDangerous: parsed.isDangerous ?? false,
-      options: parsed.options,
-      intent: parsed.intent,
-    };
-  } catch {
-    return raw;
-  }
 }
 
 const INPUT_MODE_PLACEHOLDERS: Record<AIInputMode, string> = {
@@ -112,7 +82,6 @@ export function AIChat({
   onTerminalExecute,
   onCommandHistoryReload,
   onCommandHistoryClear,
-  commandDb,
 }: AIChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -125,9 +94,7 @@ export function AIChat({
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingActionState | null>(null);
-  const [lastUserInput, setLastUserInput] = useState('');
   const [inputMode, setInputMode] = useState<AIInputMode>('execute');
-  const [learningData, setLearningData] = useState<LearningDataEntry[]>([]);
   const [clarificationContext, setClarificationContext] = useState<string | null>(null);
   const [executedOptionIndexes, setExecutedOptionIndexes] = useState<Set<string>>(new Set());
   const [addedOptionIndexes, setAddedOptionIndexes] = useState<Set<string>>(new Set());
@@ -146,6 +113,7 @@ export function AIChat({
     title: string;
     description?: string;
     command: string;
+    originalCommand?: string;
   } | null>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'commands' | 'builtin' | 'openclaw'>('chat');
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -165,18 +133,6 @@ export function AIChat({
     updateCardUsage,
     getDangerLevel,
   } = useMemory({ serverId });
-
-  useEffect(() => {
-    const loadLearning = async () => {
-      try {
-        const data = await invoke<LearningDataEntry[]>('load_learning_data');
-        setLearningData(data);
-      } catch (err) {
-        console.error('Failed to load learning data:', err);
-      }
-    };
-    loadLearning();
-  }, []);
 
   useEffect(() => {
     invoke<CommandDatabase>('load_commands_db')
@@ -241,74 +197,6 @@ export function AIChat({
     setHistoryLoaded(true);
   }, [chatHistory, historyLoaded]);
 
-  const saveLearningData = useCallback(async (entries: LearningDataEntry[]) => {
-    try {
-      await invoke('save_learning_data', { entries });
-      setLearningData(entries);
-    } catch (err) {
-      console.error('Failed to save learning data:', err);
-    }
-  }, []);
-
-  const findLearningMatch = useCallback((value: string): string | null => {
-    const normalizedInput = value.toLowerCase().trim();
-    for (const entry of learningData) {
-      const normalizedEntry = entry.natural_language.toLowerCase().trim();
-      if (normalizedInput === normalizedEntry) {
-        return entry.command;
-      }
-      if (normalizedInput.includes(normalizedEntry) || normalizedEntry.includes(normalizedInput)) {
-        return entry.command;
-      }
-    }
-    return null;
-  }, [learningData]);
-
-  const recordLearning = useCallback((naturalLanguage: string, command: string) => {
-    const normalizedInput = naturalLanguage.toLowerCase().trim();
-    const now = Date.now();
-    const existingIndex = learningData.findIndex(
-      entry => entry.natural_language.toLowerCase().trim() === normalizedInput && entry.command === command
-    );
-
-    let nextEntries: LearningDataEntry[];
-    if (existingIndex >= 0) {
-      nextEntries = learningData.map((entry, index) =>
-        index === existingIndex
-          ? { ...entry, usage_count: entry.usage_count + 1, last_used: now }
-          : entry
-      );
-    } else {
-      nextEntries = [
-        ...learningData,
-        {
-          id: `learn-${now}`,
-          natural_language: naturalLanguage.trim(),
-          command,
-          server_os: 'linux',
-          usage_count: 1,
-          last_used: now,
-        },
-      ];
-    }
-
-    void saveLearningData(nextEntries);
-  }, [learningData, saveLearningData]);
-
-  const contextWithMemory = useMemo<TerminalContext>(() => ({
-    ...context,
-    memoryContext: {
-      frequentCommands: [...commandCards]
-        .sort((a, b) => b.usageCount - a.usageCount)
-        .slice(0, 5)
-        .map(card => ({ command: card.command, description: card.description, usageCount: card.usageCount })),
-      recentChatSummary: chatHistory
-        .filter(entry => entry.command)
-        .slice(-3)
-        .map(entry => `${entry.content}${entry.command ? ` → ${entry.command}` : ''}`),
-    },
-  }), [context, commandCards, chatHistory]);
-
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -371,9 +259,11 @@ export function AIChat({
     }
   }, [serverId]);
 
-  const pushUserAndAiHistory = useCallback(async (userInput: string, response: AIResponse, source: string) => {
+  const pushUserAndAiHistory = useCallback(async (userInput: string, decision: AiDecision, source: string) => {
     try {
-      const dangerLevel = await getDangerLevel(response.command || '');
+      const dangerLevel = decision.command
+        ? await getDangerLevel(decision.command)
+        : decision.riskLevel || 'yellow';
       await appendChatEntry({
         serverId,
         role: 'user',
@@ -383,12 +273,12 @@ export function AIChat({
       await appendChatEntry({
         serverId,
         role: 'ai',
-        content: response.explanation || '',
+        content: decision.responseText || '',
         sourceLabel: source,
-        command: response.command,
-        explanation: response.explanation,
+        command: decision.command,
+        explanation: decision.responseText,
         dangerLevel,
-        options: response.options?.slice(0, 5),
+        options: decision.options?.slice(0, 5),
       });
     } catch (err) {
       console.error('Failed to save chat history:', err);
@@ -408,7 +298,6 @@ export function AIChat({
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setLastUserInput(userInput);
     setInput('');
     clearDraftForServer();
     persistRecentPrompt(userInput);
@@ -418,83 +307,52 @@ export function AIChat({
     setAddedOptionIndexes(new Set());
 
     try {
-      let response: AIResponse | null = null;
-      let source = '';
-      const promptWithMode = `${INPUT_MODE_PROMPTS[inputMode]}\n\n用户请求: ${userInput}`;
-
-      if (clarificationContext) {
-        const provider = providerManager.getActiveProvider();
-        if (!provider) {
-          throw new Error('No AI provider configured');
-        }
-        response = await provider.complete(
-          `${INPUT_MODE_PROMPTS[inputMode]}\n\n之前的问题: ${clarificationContext}\n用户回答: ${userInput}`,
-          contextWithMemory
-        );
-        source = 'AI';
-        setClarificationContext(null);
-      } else {
-        if (commandDb && inputMode === 'execute') {
-          const localMatches = await commandDb.search(userInput);
-          if (localMatches.length > 0) {
-            const match = localMatches[0];
-            response = {
-              command: match.name,
-              explanation: `${match.description}。示例: ${match.examples[0]?.command || match.name}`,
-              isDangerous: false,
-              intent: 'single',
-            };
-            source = '本地命令库';
-          }
-        }
-
-        if (!response && inputMode === 'execute') {
-          const learnedCommand = findLearningMatch(userInput);
-          if (learnedCommand) {
-            response = {
-              command: learnedCommand,
-              explanation: '（来自历史学习）',
-              isDangerous: false,
-              intent: 'single',
-            };
-            source = '历史学习';
-          }
-        }
-
-        if (!response) {
-          const provider = providerManager.getActiveProvider();
-          if (!provider) {
-            throw new Error('No AI provider configured');
-          }
-          response = await provider.complete(promptWithMode, contextWithMemory);
-          source = 'AI';
-        }
+      const activeProvider = providerManager.getProviders().find(provider => provider.isActive);
+      if (!activeProvider) {
+        throw new Error('No AI provider configured');
       }
 
-      response = normalizeAIResponse(response);
-      const limitedOptions = response.options?.slice(0, 5);
+      const prompt = clarificationContext
+        ? `${INPUT_MODE_PROMPTS[inputMode]}\n\n之前的问题: ${clarificationContext}\n用户回答: ${userInput}`
+        : `${INPUT_MODE_PROMPTS[inputMode]}\n\n用户请求: ${userInput}`;
+
+      const decision = await invoke<AiDecision>('call_ai_orchestrated', {
+        params: {
+          apiKey: activeProvider.apiKey,
+          baseUrl: activeProvider.baseUrl,
+          model: activeProvider.model,
+          prompt,
+          context,
+          serverId,
+          inputMode,
+        },
+      });
+
+      const source = decision.sourceLabels?.length ? decision.sourceLabels.join(' + ') : 'AI';
+      const limitedOptions = decision.options?.slice(0, 5) || [];
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: 'ai',
-        content: response.explanation || '',
+        content: decision.responseText || '',
         sourceLabel: source,
-        command: response.command,
-        explanation: response.explanation,
-        isDangerous: response.isDangerous,
-        options: limitedOptions,
+        command: decision.command,
+        explanation: decision.responseText,
+        isDangerous: decision.riskLevel === 'red',
+        options: limitedOptions.length ? limitedOptions : undefined,
         timestamp: Date.now(),
       };
 
       setMessages(prev => [...prev, aiMessage]);
-      await pushUserAndAiHistory(userInput, response, source);
+      await pushUserAndAiHistory(userInput, decision, source);
+      setClarificationContext(null);
 
-      if (limitedOptions && limitedOptions.length > 0) {
+      if (limitedOptions.length > 0) {
         setPendingAction({
           kind: 'multiple',
           title: userInput,
-          summary: response.explanation,
+          summary: decision.responseText,
           source: 'ai',
-          dangerLevel: limitedOptions.some(option => option.isDangerous) ? 'red' : 'green',
+          dangerLevel: decision.riskLevel === 'red' || limitedOptions.some(option => option.isDangerous) ? 'red' : 'green',
           options: limitedOptions.map(option => ({
             command: option.command,
             description: option.description,
@@ -502,15 +360,15 @@ export function AIChat({
             dangerLevel: mapOptionDangerLevel(option),
           })),
         });
-      } else if (response.intent === 'clarification') {
-        setClarificationContext(response.explanation || userInput);
-      } else if (response.command) {
-        const dangerLevel = await getDangerLevel(response.command);
+      } else if (decision.intent === 'clarification' || decision.mode === 'clarification') {
+        setClarificationContext(decision.responseText || userInput);
+      } else if (decision.command) {
+        const dangerLevel = decision.riskLevel || await getDangerLevel(decision.command);
         setPendingAction({
           kind: 'single',
           title: userInput,
-          summary: response.explanation,
-          command: response.command,
+          summary: decision.responseText,
+          command: decision.command,
           source: 'ai',
           dangerLevel,
         });
@@ -531,14 +389,13 @@ export function AIChat({
     isLoading,
     clearDraftForServer,
     clarificationContext,
-    commandDb,
-    contextWithMemory,
-    findLearningMatch,
     getDangerLevel,
     inputMode,
     persistRecentPrompt,
     providerManager,
     pushUserAndAiHistory,
+    serverId,
+    context,
   ]);
 
   const handleAddToFavorites = useCallback(async (option: AICommandOption, key?: string) => {
@@ -588,10 +445,12 @@ export function AIChat({
 
   const handlePendingActionExecute = useCallback(() => {
     if (!pendingAction || pendingAction.kind !== 'single' || !pendingAction.command) return;
-    recordLearning(lastUserInput, pendingAction.command);
-    onTerminalExecute(pendingAction.command, 'ai');
+    onTerminalExecute(pendingAction.command, 'ai', {
+      userIntent: pendingAction.title,
+      suggestedCommand: pendingAction.command,
+    });
     setPendingAction(null);
-  }, [lastUserInput, onTerminalExecute, pendingAction, recordLearning]);
+  }, [onTerminalExecute, pendingAction]);
 
   const handlePendingActionClose = useCallback(() => {
     setPendingAction(null);
@@ -623,6 +482,7 @@ export function AIChat({
     title: string;
     description?: string;
     command: string;
+    originalCommand?: string;
   }) => {
     setExecutionEditor(editor);
   }, []);
@@ -643,7 +503,16 @@ export function AIChat({
       favorite: 'favorite',
       ai: 'ai',
     };
-    onTerminalExecute(executionEditor.command.trim(), sourceMap[executionEditor.source]);
+    onTerminalExecute(
+      executionEditor.command.trim(),
+      sourceMap[executionEditor.source],
+      executionEditor.source === 'ai'
+        ? {
+            userIntent: executionEditor.title,
+            suggestedCommand: executionEditor.originalCommand || executionEditor.command,
+          }
+        : undefined
+    );
     setExecutionEditor(null);
   }, [executionEditor, onTerminalExecute]);
 
@@ -654,12 +523,15 @@ export function AIChat({
       title: pendingAction.title,
       description: pendingAction.summary,
       command: pendingAction.command,
+      originalCommand: pendingAction.command,
     });
   }, [openExecutionEditor, pendingAction]);
 
   const handlePendingOptionExecute = useCallback(async (option: PendingActionOption) => {
-    onTerminalExecute(option.command, 'ai');
-    recordLearning(lastUserInput, option.command);
+    onTerminalExecute(option.command, 'ai', {
+      userIntent: option.description,
+      suggestedCommand: option.command,
+    });
     setExecutedOptionIndexes(prev => new Set(prev).add(option.command));
     setPendingAction(prev => prev && prev.kind === 'multiple' && prev.options
       ? {
@@ -669,7 +541,7 @@ export function AIChat({
           ),
         }
       : prev);
-  }, [lastUserInput, onTerminalExecute, recordLearning]);
+  }, [onTerminalExecute]);
 
   const handlePendingOptionSave = useCallback(async (option: PendingActionOption) => {
     await handleAddToFavorites({
@@ -693,6 +565,7 @@ export function AIChat({
       title: option.description,
       description: option.reason,
       command: option.command,
+      originalCommand: option.command,
     });
   }, [openExecutionEditor]);
 
