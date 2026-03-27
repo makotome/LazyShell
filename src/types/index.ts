@@ -109,6 +109,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'ai';
   content: string;
+  sourceLabel?: string;
   command?: string;
   explanation?: string;
   isDangerous?: boolean;
@@ -122,6 +123,7 @@ export interface ChatHistoryEntry {
   serverId: string;
   role: 'user' | 'ai';
   content: string;
+  sourceLabel?: string;
   command?: string;
   explanation?: string;
   dangerLevel: DangerLevel;
@@ -203,6 +205,7 @@ export interface BuiltinCommand {
   name: string;
   description: string;
   category: string;
+  surface?: 'shell' | 'chat';
   parameters: Parameter[];
   examples: Example[];
   scenarios: string[];

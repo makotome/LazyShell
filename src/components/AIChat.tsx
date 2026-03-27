@@ -1,13 +1,26 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { ChatMessage, AIResponse, TerminalContext, LearningDataEntry, BuiltinCommand, AICommandOption, CommandCard, CommandCategory, CommandDatabase, CommandHistory } from '../types';
+import type {
+  ChatMessage,
+  AIResponse,
+  TerminalContext,
+  LearningDataEntry,
+  BuiltinCommand,
+  AICommandOption,
+  CommandCard,
+  CommandCategory,
+  CommandDatabase,
+  CommandHistory,
+} from '../types';
 import { AIProviderManager } from '../providers/aiProvider';
 import { useMemory } from '../hooks/useMemory';
-
-const CATEGORY_LABELS: Record<CommandCategory, string> = {
-  file: '文件', text: '文本', system: '系统', network: '网络',
-  process: '进程', archive: '压缩', disk: '磁盘', package: '包管理', other: '其他',
-};
+import type { AIInputMode } from './AIIntentTabs';
+import { AIComposer } from './AIComposer';
+import { AIPendingActionCard, mapOptionDangerLevel, type PendingActionOption } from './AIPendingActionCard';
+import { AIConversationPanel } from './AIConversationPanel';
+import { AIHistoryPanel } from './AIHistoryPanel';
+import { AIFavoritesPanel } from './AIFavoritesPanel';
+import { AIBuiltinPanel } from './AIBuiltinPanel';
 
 interface AIChatProps {
   providerManager: AIProviderManager;
@@ -24,7 +37,83 @@ interface AIChatProps {
   };
 }
 
-export function AIChat({ providerManager, context, tabId, serverId, commandHistory, onCommandExecute, onTerminalExecute, onCommandHistoryReload, onCommandHistoryClear, commandDb }: AIChatProps) {
+interface PendingActionState {
+  kind: 'single' | 'multiple';
+  title: string;
+  summary?: string;
+  command?: string;
+  options?: PendingActionOption[];
+  source: 'ai';
+  dangerLevel: CommandCard['dangerLevel'];
+}
+
+function normalizeAIResponse(raw: AIResponse): AIResponse {
+  const explanation = raw.explanation?.trim() || '';
+
+  if (!explanation) {
+    return raw;
+  }
+
+  const fencedMatch = explanation.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const jsonCandidate = fencedMatch?.[1]?.trim()
+    || ((explanation.startsWith('{') && explanation.endsWith('}')) ? explanation : '');
+
+  if (!jsonCandidate) {
+    return raw;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonCandidate) as AIResponse;
+    if (!parsed || typeof parsed !== 'object' || !parsed.intent) {
+      return raw;
+    }
+
+    return {
+      command: parsed.command,
+      explanation: parsed.explanation,
+      isDangerous: parsed.isDangerous ?? false,
+      options: parsed.options,
+      intent: parsed.intent,
+    };
+  } catch {
+    return raw;
+  }
+}
+
+const INPUT_MODE_PLACEHOLDERS: Record<AIInputMode, string> = {
+  execute: '描述你想在当前机器上执行什么操作',
+  diagnose: '描述现象、报错、最近变更和你想排查的问题',
+  explain: '输入命令、日志或现象，让 AI 帮你解释',
+  script: '描述你想生成的脚本、目标环境和约束',
+  answer: '只让 AI 给建议，不生成执行动作',
+};
+
+const INPUT_MODE_PROMPTS: Record<AIInputMode, string> = {
+  execute: '你现在处于执行命令模式。优先给出最直接、可执行的命令或少量备选命令。',
+  diagnose: '你现在处于故障排查模式。先给出排查思路和需要执行的诊断命令，避免直接做破坏性操作。',
+  explain: '你现在处于解释模式。优先解释命令、日志或系统现象；除非必要，不要直接给执行命令。',
+  script: '你现在处于脚本生成模式。优先生成可直接保存或执行的脚本，并说明用途与风险。',
+  answer: '你现在处于只回答模式。不要默认执行或建议立刻执行命令，优先给分析和建议。',
+};
+
+const DRAFT_STORAGE_KEY = 'lazy-shell-ai-drafts';
+const PROMPT_HISTORY_STORAGE_KEY = 'lazy-shell-ai-prompts';
+
+function getOpenclawGroupLabel(command: BuiltinCommand): string {
+  const match = command.description.match(/^([^｜|]+)[｜|]/);
+  return match ? match[1].trim() : '其他';
+}
+
+export function AIChat({
+  providerManager,
+  context,
+  serverId,
+  commandHistory,
+  onTerminalExecute,
+  onCommandHistoryReload,
+  onCommandHistoryClear,
+  commandDb,
+}: AIChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -35,13 +124,13 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [pendingCommand, setPendingCommand] = useState<AIResponse | null>(null);
-  const [commandOptions, setCommandOptions] = useState<AICommandOption[]>([]);
-  const [lastUserInput, setLastUserInput] = useState<string>('');
+  const [pendingAction, setPendingAction] = useState<PendingActionState | null>(null);
+  const [lastUserInput, setLastUserInput] = useState('');
+  const [inputMode, setInputMode] = useState<AIInputMode>('execute');
   const [learningData, setLearningData] = useState<LearningDataEntry[]>([]);
   const [clarificationContext, setClarificationContext] = useState<string | null>(null);
-  const [executedOptionIndexes, setExecutedOptionIndexes] = useState<Set<number>>(new Set());
-  const [addedOptionIndexes, setAddedOptionIndexes] = useState<Set<number>>(new Set());
+  const [executedOptionIndexes, setExecutedOptionIndexes] = useState<Set<string>>(new Set());
+  const [addedOptionIndexes, setAddedOptionIndexes] = useState<Set<string>>(new Set());
   const [builtinCommands, setBuiltinCommands] = useState<BuiltinCommand[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
@@ -58,14 +147,12 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     description?: string;
     command: string;
   } | null>(null);
+  const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'commands' | 'builtin' | 'openclaw'>('chat');
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'commands' | 'builtin'>('chat');
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
-
-  // Use memory hook
   const {
     chatHistory,
     commandCards,
@@ -79,7 +166,6 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     getDangerLevel,
   } = useMemory({ serverId });
 
-  // Load learning data on mount
   useEffect(() => {
     const loadLearning = async () => {
       try {
@@ -92,14 +178,12 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     loadLearning();
   }, []);
 
-  // Load built-in commands database
   useEffect(() => {
     invoke<CommandDatabase>('load_commands_db')
       .then(db => setBuiltinCommands(db.commands))
       .catch(err => console.error('Failed to load commands db:', err));
   }, []);
 
-  // Reset history state when server changes
   useEffect(() => {
     setHistoryLoaded(false);
     setMessages([{
@@ -108,15 +192,36 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
       content: '你好！我是 LazyShell AI 助手。告诉我你想在服务器上执行什么操作，我会帮你生成相应的命令。',
       timestamp: Date.now(),
     }]);
+    setPendingAction(null);
+    setClarificationContext(null);
   }, [serverId]);
 
-  // Integrate chat history into messages on initial load
+  useEffect(() => {
+    try {
+      const drafts = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}') as Record<string, string>;
+      setInput(drafts[serverId] || '');
+    } catch {
+      setInput('');
+    }
+  }, [serverId]);
+
+  useEffect(() => {
+    try {
+      const drafts = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}') as Record<string, string>;
+      drafts[serverId] = input;
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+    } catch {
+      // ignore local persistence errors
+    }
+  }, [input, serverId]);
+
   useEffect(() => {
     if (historyLoaded || chatHistory.length === 0) return;
     const historyMessages: ChatMessage[] = chatHistory.map(entry => ({
       id: entry.id,
       role: entry.role,
       content: entry.content,
+      sourceLabel: entry.sourceLabel,
       command: entry.command,
       explanation: entry.explanation,
       dangerLevel: entry.dangerLevel,
@@ -130,14 +235,12 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
       timestamp: Date.now(),
     });
     setMessages(prev => {
-      // Remove welcome message if we have history
-      const withoutWelcome = prev.filter(m => m.id !== 'welcome');
+      const withoutWelcome = prev.filter(message => message.id !== 'welcome');
       return [...historyMessages, ...withoutWelcome];
     });
     setHistoryLoaded(true);
   }, [chatHistory, historyLoaded]);
 
-  // Save learning data helper
   const saveLearningData = useCallback(async (entries: LearningDataEntry[]) => {
     try {
       await invoke('save_learning_data', { entries });
@@ -147,17 +250,13 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     }
   }, []);
 
-  // Find matching command from learning data
-  const findLearningMatch = useCallback((input: string): string | null => {
-    const normalizedInput = input.toLowerCase().trim();
-
-    // Find exact or close match
+  const findLearningMatch = useCallback((value: string): string | null => {
+    const normalizedInput = value.toLowerCase().trim();
     for (const entry of learningData) {
       const normalizedEntry = entry.natural_language.toLowerCase().trim();
       if (normalizedInput === normalizedEntry) {
         return entry.command;
       }
-      // Partial match - input contains entry or entry contains input
       if (normalizedInput.includes(normalizedEntry) || normalizedEntry.includes(normalizedInput)) {
         return entry.command;
       }
@@ -165,59 +264,55 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     return null;
   }, [learningData]);
 
-  // Record successful command mapping
-  const recordLearning = useCallback((input: string, command: string) => {
-    const normalizedInput = input.toLowerCase().trim();
+  const recordLearning = useCallback((naturalLanguage: string, command: string) => {
+    const normalizedInput = naturalLanguage.toLowerCase().trim();
     const now = Date.now();
-
     const existingIndex = learningData.findIndex(
-      e => e.natural_language.toLowerCase().trim() === normalizedInput && e.command === command
+      entry => entry.natural_language.toLowerCase().trim() === normalizedInput && entry.command === command
     );
 
-    let newData: LearningDataEntry[];
+    let nextEntries: LearningDataEntry[];
     if (existingIndex >= 0) {
-      // Update existing entry
-      newData = learningData.map((entry, idx) =>
-        idx === existingIndex
+      nextEntries = learningData.map((entry, index) =>
+        index === existingIndex
           ? { ...entry, usage_count: entry.usage_count + 1, last_used: now }
           : entry
       );
     } else {
-      // Add new entry
-      const newEntry: LearningDataEntry = {
-        id: `learn-${now}`,
-        natural_language: input.trim(),
-        command,
-        server_os: 'linux',
-        usage_count: 1,
-        last_used: now,
-      };
-      newData = [...learningData, newEntry];
+      nextEntries = [
+        ...learningData,
+        {
+          id: `learn-${now}`,
+          natural_language: naturalLanguage.trim(),
+          command,
+          server_os: 'linux',
+          usage_count: 1,
+          last_used: now,
+        },
+      ];
     }
 
-    saveLearningData(newData);
+    void saveLearningData(nextEntries);
   }, [learningData, saveLearningData]);
 
-  // Build enriched context with memory for AI calls
   const contextWithMemory = useMemo<TerminalContext>(() => ({
     ...context,
     memoryContext: {
       frequentCommands: [...commandCards]
         .sort((a, b) => b.usageCount - a.usageCount)
         .slice(0, 5)
-        .map(c => ({ command: c.command, description: c.description, usageCount: c.usageCount })),
+        .map(card => ({ command: card.command, description: card.description, usageCount: card.usageCount })),
       recentChatSummary: chatHistory
-        .filter(e => e.command)
+        .filter(entry => entry.command)
         .slice(-3)
-        .map(e => `${e.content}${e.command ? ` → ${e.command}` : ''}`),
+        .map(entry => `${entry.content}${entry.command ? ` → ${entry.command}` : ''}`),
     },
   }), [context, commandCards, chatHistory]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
-  // Scroll-to-top to load more history
   const handleChatScroll = useCallback(async () => {
     const container = chatContainerRef.current;
     if (!container || !hasMoreHistory || loadingMoreHistory) return;
@@ -232,6 +327,7 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
           id: entry.id,
           role: entry.role,
           content: entry.content,
+          sourceLabel: entry.sourceLabel,
           command: entry.command,
           explanation: entry.explanation,
           dangerLevel: entry.dangerLevel,
@@ -239,7 +335,6 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
           timestamp: entry.timestamp,
         }));
         setMessages(prev => [...olderMessages, ...prev]);
-        // Restore scroll position after prepending
         requestAnimationFrame(() => {
           container.scrollTop = container.scrollHeight - prevScrollHeight;
         });
@@ -247,49 +342,100 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     } finally {
       setLoadingMoreHistory(false);
     }
-  }, [hasMoreHistory, loadingMoreHistory, chatHistory.length, loadChatHistory]);
+  }, [chatHistory.length, hasMoreHistory, loadChatHistory, loadingMoreHistory]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
+  const persistRecentPrompt = useCallback((prompt: string) => {
+    const normalized = prompt.trim();
+    if (!normalized) return;
+    try {
+      const promptMap = JSON.parse(localStorage.getItem(PROMPT_HISTORY_STORAGE_KEY) || '{}') as Record<string, string[]>;
+      const current = promptMap[serverId] || [];
+      promptMap[serverId] = [normalized, ...current.filter(item => item !== normalized)].slice(0, 10);
+      localStorage.setItem(PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(promptMap));
+    } catch {
+      // ignore local persistence errors
+    }
+  }, [serverId]);
+
+  const clearDraftForServer = useCallback(() => {
+    try {
+      const drafts = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}') as Record<string, string>;
+      drafts[serverId] = '';
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+    } catch {
+      // ignore local persistence errors
+    }
+  }, [serverId]);
+
+  const pushUserAndAiHistory = useCallback(async (userInput: string, response: AIResponse, source: string) => {
+    try {
+      const dangerLevel = await getDangerLevel(response.command || '');
+      await appendChatEntry({
+        serverId,
+        role: 'user',
+        content: userInput,
+        dangerLevel: 'green',
+      });
+      await appendChatEntry({
+        serverId,
+        role: 'ai',
+        content: response.explanation || '',
+        sourceLabel: source,
+        command: response.command,
+        explanation: response.explanation,
+        dangerLevel,
+        options: response.options?.slice(0, 5),
+      });
+    } catch (err) {
+      console.error('Failed to save chat history:', err);
+    }
+  }, [appendChatEntry, getDangerLevel, serverId]);
+
+  const handleSubmit = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault();
     if (!input.trim() || isLoading) return;
 
+    const userInput = input;
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: input,
+      content: userInput,
       timestamp: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setLastUserInput(input);
+    setMessages(prev => [...prev, userMessage]);
+    setLastUserInput(userInput);
     setInput('');
+    clearDraftForServer();
+    persistRecentPrompt(userInput);
     setIsLoading(true);
-    setCommandOptions([]);
+    setPendingAction(null);
     setExecutedOptionIndexes(new Set());
     setAddedOptionIndexes(new Set());
 
     try {
       let response: AIResponse | null = null;
       let source = '';
+      const promptWithMode = `${INPUT_MODE_PROMPTS[inputMode]}\n\n用户请求: ${userInput}`;
 
-      // If in clarification multi-turn mode, skip local checks and send combined context to AI
       if (clarificationContext) {
         const provider = providerManager.getActiveProvider();
         if (!provider) {
           throw new Error('No AI provider configured');
         }
-        const combinedPrompt = `之前的问题: ${clarificationContext}\n用户回答: ${input}`;
-        response = await provider.complete(combinedPrompt, contextWithMemory);
+        response = await provider.complete(
+          `${INPUT_MODE_PROMPTS[inputMode]}\n\n之前的问题: ${clarificationContext}\n用户回答: ${userInput}`,
+          contextWithMemory
+        );
         source = 'AI';
         setClarificationContext(null);
       } else {
-        // 1. First check local command database
-        if (commandDb) {
-          const localMatches = await commandDb.search(input);
+        if (commandDb && inputMode === 'execute') {
+          const localMatches = await commandDb.search(userInput);
           if (localMatches.length > 0) {
             const match = localMatches[0];
             response = {
@@ -302,9 +448,8 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
           }
         }
 
-        // 2. Then check learning data for a match
-        if (!response) {
-          const learnedCommand = findLearningMatch(input);
+        if (!response && inputMode === 'execute') {
+          const learnedCommand = findLearningMatch(userInput);
           if (learnedCommand) {
             response = {
               command: learnedCommand,
@@ -316,25 +461,23 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
           }
         }
 
-        // 3. Finally call AI provider
         if (!response) {
           const provider = providerManager.getActiveProvider();
           if (!provider) {
             throw new Error('No AI provider configured');
           }
-          response = await provider.complete(input, contextWithMemory);
+          response = await provider.complete(promptWithMode, contextWithMemory);
           source = 'AI';
         }
       }
 
-      const limitedOptions = response.options && response.options.length > 0
-        ? response.options.slice(0, 5)
-        : undefined;
-
+      response = normalizeAIResponse(response);
+      const limitedOptions = response.options?.slice(0, 5);
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: 'ai',
-        content: `${response.explanation || ''} [${source}]`,
+        content: response.explanation || '',
+        sourceLabel: source,
         command: response.command,
         explanation: response.explanation,
         isDangerous: response.isDangerous,
@@ -342,42 +485,35 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
         timestamp: Date.now(),
       };
 
-      setMessages((prev) => [...prev, aiMessage]);
+      setMessages(prev => [...prev, aiMessage]);
+      await pushUserAndAiHistory(userInput, response, source);
 
-      // Save to chat history
-      try {
-        const dangerLevel = await getDangerLevel(response.command || '');
-        await appendChatEntry({
-          serverId,
-          role: 'user',
-          content: input,
-          dangerLevel: 'green',
-        });
-        await appendChatEntry({
-          serverId,
-          role: 'ai',
-          content: `${response.explanation || ''} [${source}]`,
-          command: response.command,
-          explanation: response.explanation,
-          dangerLevel,
-          options: limitedOptions,
-        });
-      } catch (err) {
-        console.error('Failed to save chat history:', err);
-      }
-
-      // Handle multiple options mode
       if (limitedOptions && limitedOptions.length > 0) {
-        setCommandOptions(limitedOptions);
+        setPendingAction({
+          kind: 'multiple',
+          title: userInput,
+          summary: response.explanation,
+          source: 'ai',
+          dangerLevel: limitedOptions.some(option => option.isDangerous) ? 'red' : 'green',
+          options: limitedOptions.map(option => ({
+            command: option.command,
+            description: option.description,
+            reason: option.reason,
+            dangerLevel: mapOptionDangerLevel(option),
+          })),
+        });
       } else if (response.intent === 'clarification') {
-        // Clarification mode: save context for multi-turn follow-up
-        setClarificationContext(response.explanation || input);
-      } else if (response.isDangerous) {
-        // Dangerous command: show warning + execute button
-        setPendingCommand(response);
+        setClarificationContext(response.explanation || userInput);
       } else if (response.command) {
-        recordLearning(input, response.command);
-        onTerminalExecute(response.command, 'ai');
+        const dangerLevel = await getDangerLevel(response.command);
+        setPendingAction({
+          kind: 'single',
+          title: userInput,
+          summary: response.explanation,
+          command: response.command,
+          source: 'ai',
+          dangerLevel,
+        });
       }
     } catch (error) {
       const errorMessage: ChatMessage = {
@@ -386,130 +522,43 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
         content: `错误: ${error instanceof Error ? error.message : 'Unknown error'}`,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, providerManager, contextWithMemory, onCommandExecute, onTerminalExecute, tabId, commandDb, findLearningMatch, clarificationContext, serverId, getDangerLevel, appendChatEntry, recordLearning]);
+  }, [
+    input,
+    isLoading,
+    clearDraftForServer,
+    clarificationContext,
+    commandDb,
+    contextWithMemory,
+    findLearningMatch,
+    getDangerLevel,
+    inputMode,
+    persistRecentPrompt,
+    providerManager,
+    pushUserAndAiHistory,
+  ]);
 
-  const handleCommandConfirm = useCallback(async () => {
-    if (pendingCommand && pendingCommand.command) {
-      const command = pendingCommand.command;
-      const explanation = pendingCommand.explanation || '';
-
-      // Execute the command
-      onCommandExecute(command, lastUserInput);
-      recordLearning(lastUserInput, command);
-
-      // Add to messages for persistence in chat
-      const dangerLevel = await getDangerLevel(command);
-      const executedMessage: ChatMessage = {
-        id: `executed-${Date.now()}`,
-        role: 'ai',
-        content: `执行命令: ${explanation}`,
-        command: command,
-        explanation: explanation,
-        isDangerous: true,
-        dangerLevel,
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, executedMessage]);
-
-      // Save to chat history
-      try {
-        await appendChatEntry({
-          serverId,
-          role: 'ai',
-          content: `执行命令: ${explanation}`,
-          command: command,
-          explanation: explanation,
-          dangerLevel,
-        });
-      } catch (err) {
-        console.error('Failed to save chat history:', err);
-      }
-
-      setPendingCommand(null);
-    }
-  }, [pendingCommand, onCommandExecute, lastUserInput, serverId, getDangerLevel, appendChatEntry, recordLearning]);
-
-  const handleCommandCancel = useCallback(() => {
-    setPendingCommand(null);
-    const cancelMessage: ChatMessage = {
-      id: `cancel-${Date.now()}`,
-      role: 'ai',
-      content: '命令已取消。',
-      timestamp: Date.now(),
-    };
-    setMessages((prev) => [...prev, cancelMessage]);
-  }, []);
-
-  const handleOptionExecute = useCallback(async (option: AICommandOption, index: number) => {
-    if (option.isDangerous) {
-      // Dangerous option also needs confirmation
-      setPendingCommand({
-        command: option.command,
-        explanation: option.description,
-        isDangerous: true,
-        intent: 'single',
-      });
-      return;
-    }
-
-    // Execute the command
-    onTerminalExecute(option.command, 'ai');
-    recordLearning(lastUserInput, option.command);
-
-    // Get danger level and add to chat history
-    const dangerLevel = await getDangerLevel(option.command);
-
-    // Add executed command as a message to persist in chat
-    const executedMessage: ChatMessage = {
-      id: `executed-${Date.now()}`,
-      role: 'ai',
-      content: `执行命令: ${option.description}`,
-      command: option.command,
-      explanation: option.description,
-      isDangerous: option.isDangerous,
-      dangerLevel,
-      timestamp: Date.now(),
-    };
-    setMessages((prev) => [...prev, executedMessage]);
-
-    // Save to chat history
-    try {
-      await appendChatEntry({
-        serverId,
-        role: 'ai',
-        content: `执行命令: ${option.description}`,
-        command: option.command,
-        explanation: option.description,
-        dangerLevel,
-      });
-    } catch (err) {
-      console.error('Failed to save chat history:', err);
-    }
-
-    // Mark as executed (keep card visible)
-    setExecutedOptionIndexes(prev => new Set(prev).add(index));
-  }, [serverId, getDangerLevel, appendChatEntry, lastUserInput, recordLearning, onTerminalExecute]);
-
-  const handleAddToFavorites = useCallback(async (option: AICommandOption, index?: number) => {
-    // Check if command already exists in favorites
-    const existing = commandCards.find(c => c.command.trim() === option.command.trim());
+  const handleAddToFavorites = useCallback(async (option: AICommandOption, key?: string) => {
+    const existing = commandCards.find(card => card.command.trim() === option.command.trim());
     if (existing) {
-      const infoMessage: ChatMessage = {
-        id: `info-${Date.now()}`,
-        role: 'ai',
-        content: `该命令已在常用列表中（已使用 ${existing.usageCount} 次）`,
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, infoMessage]);
-      if (index !== undefined) {
-        setAddedOptionIndexes(prev => new Set(prev).add(index));
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `info-${Date.now()}`,
+          role: 'ai',
+          content: `该命令已在常用列表中（已使用 ${existing.usageCount} 次）`,
+          timestamp: Date.now(),
+        },
+      ]);
+      if (key) {
+        setAddedOptionIndexes(prev => new Set(prev).add(key));
       }
       return;
     }
+
     try {
       const dangerLevel = await getDangerLevel(option.command);
       await addCommandCard({
@@ -520,20 +569,138 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
         dangerLevel,
         category: 'system',
       });
-      const successMessage: ChatMessage = {
-        id: `added-${Date.now()}`,
-        role: 'ai',
-        content: `✅ 已添加到常用命令：${option.command}`,
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, successMessage]);
-      if (index !== undefined) {
-        setAddedOptionIndexes(prev => new Set(prev).add(index));
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `added-${Date.now()}`,
+          role: 'ai',
+          content: `已添加到常用命令：${option.command}`,
+          timestamp: Date.now(),
+        },
+      ]);
+      if (key) {
+        setAddedOptionIndexes(prev => new Set(prev).add(key));
       }
     } catch (err) {
       console.error('Failed to add to favorites:', err);
     }
-  }, [serverId, addCommandCard, getDangerLevel, commandCards]);
+  }, [addCommandCard, commandCards, getDangerLevel, serverId]);
+
+  const handlePendingActionExecute = useCallback(() => {
+    if (!pendingAction || pendingAction.kind !== 'single' || !pendingAction.command) return;
+    recordLearning(lastUserInput, pendingAction.command);
+    onTerminalExecute(pendingAction.command, 'ai');
+    setPendingAction(null);
+  }, [lastUserInput, onTerminalExecute, pendingAction, recordLearning]);
+
+  const handlePendingActionClose = useCallback(() => {
+    setPendingAction(null);
+    if (executionEditor?.source === 'ai') {
+      setExecutionEditor(null);
+    }
+  }, [executionEditor]);
+
+  const handlePendingActionSave = useCallback(async () => {
+    if (!pendingAction || pendingAction.kind !== 'single' || !pendingAction.command) return;
+    await handleAddToFavorites({
+      command: pendingAction.command,
+      description: pendingAction.summary || pendingAction.title,
+      isDangerous: pendingAction.dangerLevel === 'red',
+    });
+  }, [handleAddToFavorites, pendingAction]);
+
+  const handlePendingActionCopy = useCallback(async () => {
+    if (!pendingAction || pendingAction.kind !== 'single' || !pendingAction.command) return;
+    try {
+      await navigator.clipboard.writeText(pendingAction.command);
+    } catch (err) {
+      console.error('Failed to copy command:', err);
+    }
+  }, [pendingAction]);
+
+  const openExecutionEditor = useCallback((editor: {
+    source: 'history' | 'builtin' | 'favorite' | 'ai';
+    title: string;
+    description?: string;
+    command: string;
+  }) => {
+    setExecutionEditor(editor);
+  }, []);
+
+  const closeExecutionEditor = useCallback(() => {
+    setExecutionEditor(null);
+  }, []);
+
+  const updateExecutionEditorCommand = useCallback((command: string) => {
+    setExecutionEditor(prev => prev ? { ...prev, command } : prev);
+  }, []);
+
+  const handleExecutionEditorRun = useCallback(() => {
+    if (!executionEditor?.command.trim()) return;
+    const sourceMap: Record<'history' | 'builtin' | 'favorite' | 'ai', NonNullable<CommandHistory['source']>> = {
+      history: 'history',
+      builtin: 'builtin',
+      favorite: 'favorite',
+      ai: 'ai',
+    };
+    onTerminalExecute(executionEditor.command.trim(), sourceMap[executionEditor.source]);
+    setExecutionEditor(null);
+  }, [executionEditor, onTerminalExecute]);
+
+  const handlePendingActionEdit = useCallback(() => {
+    if (!pendingAction || pendingAction.kind !== 'single' || !pendingAction.command) return;
+    openExecutionEditor({
+      source: 'ai',
+      title: pendingAction.title,
+      description: pendingAction.summary,
+      command: pendingAction.command,
+    });
+  }, [openExecutionEditor, pendingAction]);
+
+  const handlePendingOptionExecute = useCallback(async (option: PendingActionOption) => {
+    onTerminalExecute(option.command, 'ai');
+    recordLearning(lastUserInput, option.command);
+    setExecutedOptionIndexes(prev => new Set(prev).add(option.command));
+    setPendingAction(prev => prev && prev.kind === 'multiple' && prev.options
+      ? {
+          ...prev,
+          options: prev.options.map(candidate =>
+            candidate.command === option.command ? { ...candidate, isExecuted: true } : candidate
+          ),
+        }
+      : prev);
+  }, [lastUserInput, onTerminalExecute, recordLearning]);
+
+  const handlePendingOptionSave = useCallback(async (option: PendingActionOption) => {
+    await handleAddToFavorites({
+      command: option.command,
+      description: option.description,
+      isDangerous: option.dangerLevel === 'red',
+    }, option.command);
+    setPendingAction(prev => prev && prev.kind === 'multiple' && prev.options
+      ? {
+          ...prev,
+          options: prev.options.map(candidate =>
+            candidate.command === option.command ? { ...candidate, isSaved: true } : candidate
+          ),
+        }
+      : prev);
+  }, [handleAddToFavorites]);
+
+  const handlePendingOptionEdit = useCallback((option: PendingActionOption) => {
+    openExecutionEditor({
+      source: 'ai',
+      title: option.description,
+      description: option.reason,
+      command: option.command,
+    });
+  }, [openExecutionEditor]);
+
+  const handleComposerSubmit = useCallback(() => {
+    if (!input.trim() || isLoading) return;
+    const syntheticEvent = { preventDefault() {} } as React.FormEvent;
+    void handleSubmit(syntheticEvent);
+  }, [handleSubmit, input, isLoading]);
 
   const handleCardExecute = useCallback((card: CommandCard) => {
     onTerminalExecute(card.command, 'favorite');
@@ -559,15 +726,9 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
   }, []);
 
   const handleCardSave = useCallback(async (card: CommandCard, executeAfterSave = false) => {
-    if (!editingCardDraft) {
-      return;
-    }
-
+    if (!editingCardDraft) return;
     const nextCommand = editingCardDraft.command.trim();
-    if (!nextCommand) {
-      return;
-    }
-
+    if (!nextCommand) return;
     try {
       const dangerLevel = await getDangerLevel(nextCommand);
       const updatedCard: CommandCard = {
@@ -577,11 +738,9 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
         description: editingCardDraft.description.trim(),
         dangerLevel,
       };
-
       await updateCommandCard(updatedCard);
       setEditingCardId(null);
       setEditingCardDraft(null);
-
       if (executeAfterSave) {
         onTerminalExecute(updatedCard.command, 'favorite');
         updateCardUsage(updatedCard.id);
@@ -591,53 +750,97 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     }
   }, [editingCardDraft, getDangerLevel, onTerminalExecute, updateCardUsage, updateCommandCard]);
 
-  // Group command cards by category
   const groupedCards = useMemo(() => {
     const groups = new Map<CommandCategory, CommandCard[]>();
     for (const card of commandCards) {
-      const cat = (card.category || 'other') as CommandCategory;
-      const list = groups.get(cat) || [];
+      const category = (card.category || 'other') as CommandCategory;
+      const list = groups.get(category) || [];
       list.push(card);
-      groups.set(cat, list);
+      groups.set(category, list);
     }
     return groups;
   }, [commandCards]);
 
-  // Group builtin commands by category
-  const groupedBuiltinCommands = useMemo(() => {
+  const builtinReferenceCommands = useMemo(
+    () => builtinCommands.filter(command => command.category !== 'openclaw'),
+    [builtinCommands]
+  );
+
+  const openclawCommands = useMemo(
+    () => builtinCommands.filter(command => command.category === 'openclaw'),
+    [builtinCommands]
+  );
+
+  const groupedReferenceCommands = useMemo(() => {
     const groups = new Map<string, BuiltinCommand[]>();
-    for (const cmd of builtinCommands) {
-      const cat = cmd.category || 'other';
-      const list = groups.get(cat) || [];
-      list.push(cmd);
-      groups.set(cat, list);
+    for (const command of builtinReferenceCommands) {
+      const category = command.category || 'other';
+      const list = groups.get(category) || [];
+      list.push(command);
+      groups.set(category, list);
     }
     return groups;
-  }, [builtinCommands]);
+  }, [builtinReferenceCommands]);
+
+  const groupedOpenclawCommands = useMemo(() => {
+    const groups = new Map<string, BuiltinCommand[]>();
+    for (const command of openclawCommands) {
+      const category = getOpenclawGroupLabel(command);
+      const list = groups.get(category) || [];
+      list.push(command);
+      groups.set(category, list);
+    }
+    return groups;
+  }, [openclawCommands]);
+
+  useEffect(() => {
+    setCollapsedCategories(prev => {
+      if (prev.size > 0) {
+        return prev;
+      }
+
+      const next = new Set<string>();
+      for (const category of groupedReferenceCommands.keys()) {
+        next.add(`builtin-${category}`);
+      }
+      for (const category of groupedOpenclawCommands.keys()) {
+        next.add(`builtin-${category}`);
+      }
+      return next;
+    });
+  }, [groupedOpenclawCommands, groupedReferenceCommands]);
 
   const handleBuiltinExecute = useCallback((cmd: BuiltinCommand) => {
-    const command = cmd.examples[0]?.command || cmd.name;
-    onTerminalExecute(command, 'builtin');
+    onTerminalExecute(cmd.examples[0]?.command || cmd.name, 'builtin');
   }, [onTerminalExecute]);
 
+  const handleBuiltinCopy = useCallback(async (cmd: BuiltinCommand) => {
+    const value = cmd.examples[0]?.command || cmd.name;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (err) {
+      console.error('Failed to copy builtin command:', err);
+    }
+  }, []);
+
   const handleBuiltinAddToFavorites = useCallback(async (cmd: BuiltinCommand) => {
-    const option: AICommandOption = {
-      command: cmd.name,
+    await handleAddToFavorites({
+      command: cmd.examples[0]?.command || cmd.name,
       description: cmd.description,
       isDangerous: false,
-    };
-    await handleAddToFavorites(option);
+    });
   }, [handleAddToFavorites]);
 
-  const toggleCategory = useCallback((cat: string) => {
+  const toggleCategory = useCallback((category: string) => {
     setCollapsedCategories(prev => {
       const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
       return next;
     });
   }, []);
 
-  const getSourceLabel = (source?: CommandHistory['source']) => {
+  const getSourceLabel = useCallback((source?: CommandHistory['source']) => {
     switch (source) {
       case 'ai': return 'AI';
       case 'history': return '历史';
@@ -647,7 +850,7 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
       case 'terminal': return '终端';
       default: return '未知';
     }
-  };
+  }, []);
 
   const recentCommandHistory = useMemo(() => {
     const normalizedQuery = historyQuery.trim().toLowerCase();
@@ -658,11 +861,7 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
         if (historySourceFilter !== 'all' && entry.source !== historySourceFilter) {
           return false;
         }
-
-        if (!normalizedQuery) {
-          return true;
-        }
-
+        if (!normalizedQuery) return true;
         return (
           entry.command.toLowerCase().includes(normalizedQuery) ||
           entry.output.toLowerCase().includes(normalizedQuery) ||
@@ -671,57 +870,23 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
       });
 
     return historyDedupe
-      ? filtered.filter((entry, index, arr) =>
-          arr.findIndex(candidate => candidate.command.trim() === entry.command.trim()) === index
+      ? filtered.filter((entry, index, entries) =>
+          entries.findIndex(candidate => candidate.command.trim() === entry.command.trim()) === index
         )
       : filtered;
-  }, [commandHistory, historyQuery, historySourceFilter, historyDedupe]);
+  }, [commandHistory, getSourceLabel, historyDedupe, historyQuery, historySourceFilter]);
 
   const handleHistoryExecute = useCallback((entry: CommandHistory) => {
     onTerminalExecute(entry.command, 'history');
   }, [onTerminalExecute]);
 
   const handleHistoryAddToFavorites = useCallback(async (entry: CommandHistory) => {
-    const option: AICommandOption = {
+    await handleAddToFavorites({
       command: entry.command,
       description: entry.command,
       isDangerous: false,
-    };
-    await handleAddToFavorites(option);
+    });
   }, [handleAddToFavorites]);
-
-  const openExecutionEditor = useCallback((editor: {
-    source: 'history' | 'builtin' | 'favorite' | 'ai';
-    title: string;
-    description?: string;
-    command: string;
-  }) => {
-    setExecutionEditor(editor);
-  }, []);
-
-  const closeExecutionEditor = useCallback(() => {
-    setExecutionEditor(null);
-  }, []);
-
-  const updateExecutionEditorCommand = useCallback((command: string) => {
-    setExecutionEditor(prev => prev ? { ...prev, command } : prev);
-  }, []);
-
-  const handleExecutionEditorRun = useCallback(() => {
-    if (!executionEditor?.command.trim()) {
-      return;
-    }
-
-    const sourceMap: Record<'history' | 'builtin' | 'favorite' | 'ai', NonNullable<CommandHistory['source']>> = {
-      history: 'history',
-      builtin: 'builtin',
-      favorite: 'favorite',
-      ai: 'ai',
-    };
-
-    onTerminalExecute(executionEditor.command.trim(), sourceMap[executionEditor.source]);
-    setExecutionEditor(null);
-  }, [executionEditor, onTerminalExecute]);
 
   const handleTrimHistory = useCallback(async () => {
     try {
@@ -733,673 +898,199 @@ export function AIChat({ providerManager, context, tabId, serverId, commandHisto
     } catch (err) {
       console.error('Failed to trim command history:', err);
     }
-  }, [serverId, historyTrimCount, onCommandHistoryReload]);
-
-  const handleClearHistoryRequest = useCallback(() => {
-    console.log('[AIChat] Clear history requested', { serverId });
-    setIsConfirmingClearHistory(true);
-  }, [serverId]);
-
-  const handleClearHistoryCancel = useCallback(() => {
-    console.log('[AIChat] Clear history cancelled', { serverId });
-    setIsConfirmingClearHistory(false);
-  }, [serverId]);
+  }, [historyTrimCount, onCommandHistoryReload, serverId]);
 
   const handleClearHistoryConfirm = useCallback(async () => {
-    console.log('[AIChat] Clear history confirmed', { serverId, beforeCount: commandHistory.length });
     try {
       onCommandHistoryClear();
       setIsConfirmingClearHistory(false);
-      await invoke('save_command_history', {
-        serverId,
-        entries: [],
-      });
-      console.log('[AIChat] Clear history persisted', { serverId });
+      await invoke('save_command_history', { serverId, entries: [] });
       await onCommandHistoryReload();
     } catch (err) {
       console.error('Failed to clear command history:', err);
       await onCommandHistoryReload();
     }
-  }, [serverId, commandHistory.length, onCommandHistoryReload, onCommandHistoryClear]);
+  }, [onCommandHistoryClear, onCommandHistoryReload, serverId]);
 
   return (
     <div className="ai-chat">
-      {/* Floating tabs */}
       <div className="ai-chat-tabs">
-        <button
-          className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
-          onClick={() => setActiveTab('chat')}
-        >
-          聊天
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
-          onClick={() => setActiveTab('history')}
-        >
-          历史
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'commands' ? 'active' : ''}`}
-          onClick={() => setActiveTab('commands')}
-        >
-          常用
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'builtin' ? 'active' : ''}`}
-          onClick={() => setActiveTab('builtin')}
-        >
-          内置
-        </button>
+        <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>聊天</button>
+        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>历史</button>
+        <button className={`tab-btn ${activeTab === 'commands' ? 'active' : ''}`} onClick={() => setActiveTab('commands')}>常用</button>
+        <button className={`tab-btn ${activeTab === 'builtin' ? 'active' : ''}`} onClick={() => setActiveTab('builtin')}>内置</button>
+        <button className={`tab-btn ${activeTab === 'openclaw' ? 'active' : ''}`} onClick={() => setActiveTab('openclaw')}>OPENCLAW</button>
       </div>
 
       <div className="ai-chat-content">
-        {/* Main content area */}
         <div className="ai-chat-main">
-          {/* Chat tab */}
           {activeTab === 'chat' && (
             <>
-              <div className="chat-messages" ref={chatContainerRef} onScroll={handleChatScroll}>
-                {loadingMoreHistory && (
-                  <div className="history-loading-indicator">加载更多历史...</div>
-                )}
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`message message-${msg.role}${msg.id === 'history-divider' ? ' history-divider' : ''}`}>
-                    <div className="message-role">{msg.role === 'user' ? '你' : 'AI'}</div>
-                    <div className="message-content">
-                      {msg.content}
-                      {msg.command && (
-                        <div className="command-preview">
-                          <code>{msg.command}</code>
-                        </div>
-                      )}
-                    </div>
-                    {msg.options && msg.options.length > 0 && !commandOptions.length && (
-                      <div className="command-options">
-                        <div className="options-header">命令选项：</div>
-                        {msg.options.map((option, idx) => (
-                          <div key={idx} className={`command-option-card danger-${option.isDangerous ? 'red' : 'green'}`}>
-                            <div className="option-card-header">
-                              <span className={`danger-badge danger-${option.isDangerous ? 'red' : 'green'}`}>
-                                {option.isDangerous ? '危险' : '安全'}
-                              </span>
-                              <span className="option-description">{option.description}</span>
-                            </div>
-                            <div className="option-card-body">
-                              <code className="option-command">{option.command}</code>
-                            </div>
-                            {option.reason && <div className="option-reason">{option.reason}</div>}
-                            <div className="option-card-actions">
-                              <button
-                                className={`btn ${option.isDangerous ? 'btn-danger' : 'btn-primary'}`}
-                                onClick={() => handleOptionExecute(option, idx)}
-                              >
-                                执行
-                              </button>
-                              <button
-                                className="btn btn-secondary"
-                                onClick={() => handleAddToFavorites(option)}
-                              >
-                                添加到常用
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {isLoading && (
-                  <div className="message message-ai loading">
-                    <div className="message-role">AI</div>
-                    <div className="message-content">思考中...</div>
-                  </div>
-                )}
-                {pendingCommand && (
-                  <div className="command-confirm-dialog">
-                    <div className="danger-warning">
-                      <span className="warning-icon">⚠️</span>
-                      <span>这是一个危险命令，请确认是否执行</span>
-                    </div>
-                    <div className="command-preview">
-                      <code>{pendingCommand.command}</code>
-                    </div>
-                    <div className="command-explanation">{pendingCommand.explanation}</div>
-                    <div className="command-actions">
-                      <button className="btn btn-primary" onClick={handleCommandConfirm}>
-                        执行
-                      </button>
-                      <button className="btn btn-secondary" onClick={handleCommandCancel}>
-                        取消
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {commandOptions.length > 0 && (
-                  <div className="command-options">
-                    <div className="options-header">请选择要执行的命令：</div>
-                    {executionEditor?.source === 'ai' && (
-                      <div className="command-editor-bar">
-                        <div className="command-editor-header">
-                          <span className="command-editor-title">调整命令后执行</span>
-                          <span className="command-editor-subtitle">{executionEditor.title}</span>
-                        </div>
-                        <textarea
-                          className="command-editor-textarea"
-                          value={executionEditor.command}
-                          onChange={(e) => updateExecutionEditorCommand(e.target.value)}
-                          rows={3}
-                        />
-                        <div className="card-actions">
-                          <button
-                            className="btn btn-primary btn-small"
-                            onClick={handleExecutionEditorRun}
-                            disabled={!executionEditor.command.trim()}
-                          >
-                            执行调整后的命令
-                          </button>
-                          <button
-                            className="btn btn-secondary btn-small"
-                            onClick={closeExecutionEditor}
-                          >
-                            取消
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {commandOptions.map((option, idx) => {
-                      const isExecuted = executedOptionIndexes.has(idx);
-                      const isAdded = addedOptionIndexes.has(idx);
-                      return (
-                        <div key={idx} className={`command-option-card danger-${option.isDangerous ? 'red' : 'green'}${isExecuted ? ' executed' : ''}`}>
-                          <div className="option-card-header">
-                            <span className={`danger-badge danger-${option.isDangerous ? 'red' : 'green'}`}>
-                              {isExecuted ? '已执行 ✓' : option.isDangerous ? '危险' : '安全'}
-                            </span>
-                            <span className="option-description">{option.description}</span>
-                          </div>
-                          <div className="option-card-body">
-                            <code className="option-command">{option.command}</code>
-                          </div>
-                          {option.reason && <div className="option-reason">{option.reason}</div>}
-                          <div className="option-card-actions">
-                            <button
-                              className={`btn ${option.isDangerous ? 'btn-danger' : 'btn-primary'}`}
-                              onClick={() => handleOptionExecute(option, idx)}
-                              disabled={isExecuted}
-                            >
-                              {isExecuted ? '已执行' : '执行'}
-                            </button>
-                            <button
-                              className="btn btn-secondary btn-small btn-chip"
-                              onClick={() => openExecutionEditor({
-                                source: 'ai',
-                                title: option.description,
-                                description: option.reason,
-                                command: option.command,
-                              })}
-                            >
-                              调整
-                            </button>
-                            <button
-                              className="btn btn-secondary btn-small btn-chip"
-                              onClick={() => handleAddToFavorites(option, idx)}
-                              disabled={isAdded}
-                            >
-                              {isAdded ? '已收藏' : '收藏'}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {commandOptions.length > 1 && (
-                      <button
-                        className="btn btn-secondary batch-add-btn"
-                        onClick={() => commandOptions.forEach(opt => handleAddToFavorites(opt))}
-                      >
-                        全部添加到常用
-                      </button>
-                    )}
-                  </div>
-                )}
-                {clarificationContext && (
-                  <div className="clarification-hint">
-                    💡 AI 需要更多信息，请在下方输入补充说明
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-
-              <form className="chat-input-form" onSubmit={handleSubmit}>
-                <div className="chat-composer-shell">
-                  <div className="chat-composer-header">
-                    <span className="chat-composer-kicker">
-                      {clarificationContext ? '补充上下文' : 'Command Intent'}
-                    </span>
-                    <span className="chat-composer-context">
-                      {context.currentDir ? `目录 ${context.currentDir}` : '根据当前终端上下文生成命令'}
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    className="chat-input"
-                    placeholder={clarificationContext ? "请补充说明..." : "描述你想执行的服务器操作..."}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    disabled={isLoading}
+              <div className="ai-chat-control-panel">
+                {pendingAction && (
+                  <AIPendingActionCard
+                    title={pendingAction.title}
+                    summary={pendingAction.summary}
+                    command={pendingAction.command}
+                    dangerLevel={pendingAction.dangerLevel}
+                    options={pendingAction.options?.map(option => ({
+                      ...option,
+                      isExecuted: executedOptionIndexes.has(option.command) || option.isExecuted,
+                      isSaved: addedOptionIndexes.has(option.command) || option.isSaved,
+                    }))}
+                    onClose={handlePendingActionClose}
+                    onExecute={handlePendingActionExecute}
+                    onSave={() => void handlePendingActionSave()}
+                    onCopy={() => void handlePendingActionCopy()}
+                    onEdit={handlePendingActionEdit}
+                    onOptionExecute={(option) => void handlePendingOptionExecute(option)}
+                    onOptionSave={(option) => void handlePendingOptionSave(option)}
+                    onOptionEdit={handlePendingOptionEdit}
                   />
+                )}
+              </div>
+              {executionEditor?.source === 'ai' && (
+                <div className="ai-chat-control-panel ai-chat-control-panel-secondary">
+                  <div className="command-editor-bar">
+                    <div className="command-editor-header">
+                      <span className="command-editor-title">调整命令后执行</span>
+                      <span className="command-editor-subtitle">{executionEditor.title}</span>
+                    </div>
+                    <textarea
+                      className="command-editor-textarea"
+                      value={executionEditor.command}
+                      onChange={(e) => updateExecutionEditorCommand(e.target.value)}
+                      rows={3}
+                    />
+                    <div className="card-actions">
+                      <button className="btn btn-primary btn-small" onClick={handleExecutionEditorRun} disabled={!executionEditor.command.trim()}>
+                        执行调整后的命令
+                      </button>
+                      <button className="btn btn-secondary btn-small" onClick={closeExecutionEditor}>取消</button>
+                    </div>
+                  </div>
                 </div>
-                <button type="submit" className="btn btn-primary" disabled={isLoading || !input.trim()}>
-                  发送
-                </button>
+              )}
+              <AIConversationPanel
+                messages={messages}
+                isLoading={isLoading}
+                loadingMoreHistory={loadingMoreHistory}
+                clarificationContext={clarificationContext}
+                chatContainerRef={chatContainerRef}
+                messagesEndRef={messagesEndRef}
+                onScroll={() => void handleChatScroll()}
+              />
+              <form className="chat-input-form" onSubmit={handleSubmit}>
+                <AIComposer
+                  value={input}
+                  onChange={setInput}
+                  onSubmit={handleComposerSubmit}
+                  placeholder={clarificationContext ? '请补充说明...' : INPUT_MODE_PLACEHOLDERS[inputMode]}
+                  disabled={isLoading}
+                  clarificationMode={!!clarificationContext}
+                  inputMode={inputMode}
+                  onInputModeChange={setInputMode}
+                />
               </form>
             </>
           )}
 
-          {/* History tab */}
           {activeTab === 'history' && (
-            <div className="commands-panel">
-              <div className="panel-header panel-header-actions">
-                <span>历史命令 ({recentCommandHistory.length})</span>
-                <div className="panel-actions">
-                  <select
-                    className="history-trim-select"
-                    value={historyTrimCount}
-                    onChange={(e) => setHistoryTrimCount(e.target.value as '50' | '100' | '300')}
-                  >
-                    <option value="50">最近 50 条</option>
-                    <option value="100">最近 100 条</option>
-                    <option value="300">最近 300 条</option>
-                  </select>
-                  <button className="btn btn-secondary btn-small" onClick={handleTrimHistory}>
-                    裁剪历史
-                  </button>
-                  <button className="btn btn-danger btn-small" onClick={handleClearHistoryRequest}>
-                    清空历史
-                  </button>
-                </div>
-              </div>
-              {isConfirmingClearHistory && (
-                <div className="history-confirm-bar">
-                  <span className="history-confirm-text">确定要清空当前服务器的所有命令历史吗？此操作不可撤销。</span>
-                  <div className="history-confirm-actions">
-                    <button className="btn btn-danger btn-small" onClick={handleClearHistoryConfirm}>
-                      确认清空
-                    </button>
-                    <button className="btn btn-secondary btn-small" onClick={handleClearHistoryCancel}>
-                      取消
-                    </button>
-                  </div>
-                </div>
-              )}
-              {executionEditor?.source === 'history' && (
-                <div className="command-editor-bar">
-                  <div className="command-editor-header">
-                    <span className="command-editor-title">调整命令后执行</span>
-                    <span className="command-editor-subtitle">{executionEditor.title}</span>
-                  </div>
-                  <textarea
-                    className="command-editor-textarea"
-                    value={executionEditor.command}
-                    onChange={(e) => updateExecutionEditorCommand(e.target.value)}
-                    rows={3}
-                  />
-                  <div className="card-actions">
-                    <button
-                      className="btn btn-primary btn-small"
-                      onClick={handleExecutionEditorRun}
-                      disabled={!executionEditor.command.trim()}
-                    >
-                      执行调整后的命令
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-small"
-                      onClick={closeExecutionEditor}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div className="history-toolbar">
-                <input
-                  className="history-search"
-                  type="text"
-                  placeholder="搜索命令、输出或来源"
-                  value={historyQuery}
-                  onChange={(e) => setHistoryQuery(e.target.value)}
-                />
-                <select
-                  className="history-filter"
-                  value={historySourceFilter}
-                  onChange={(e) => setHistorySourceFilter(e.target.value as 'all' | NonNullable<CommandHistory['source']>)}
-                >
-                  <option value="all">全部来源</option>
-                  <option value="ai">AI</option>
-                  <option value="terminal">终端</option>
-                  <option value="history">历史</option>
-                  <option value="favorite">常用</option>
-                  <option value="builtin">内置</option>
-                  <option value="direct">直连</option>
-                </select>
-                <label className="history-toggle">
-                  <input
-                    type="checkbox"
-                    checked={historyDedupe}
-                    onChange={(e) => setHistoryDedupe(e.target.checked)}
-                  />
-                  去重
-                </label>
-              </div>
-              {recentCommandHistory.length === 0 ? (
-                <div className="empty-state">
-                  <div>{historyQuery || historySourceFilter !== 'all' ? '没有匹配的历史命令' : '暂无命令历史'}</div>
-                  <div className="hint">执行过的命令会显示在这里，并跨会话保留</div>
-                </div>
-              ) : (
-                <div className="commands-list">
-                  {recentCommandHistory.map((entry, index) => (
-                    <div key={`${entry.timestamp}-${index}`} className="builtin-command-item">
-                      <div className="builtin-cmd-header">
-                        <span className="builtin-cmd-name">{entry.command}</span>
-                        <span className={`builtin-cmd-category ${entry.exitCode === 0 ? 'history-success' : 'history-error'}`}>
-                          exit {entry.exitCode}
-                        </span>
-                      </div>
-                      <div className="builtin-cmd-desc">
-                        {getSourceLabel(entry.source)} · {new Date(entry.timestamp).toLocaleString()}
-                      </div>
-                      {entry.output && (
-                        <div className="builtin-cmd-example">
-                          <code>{entry.output.length > 140 ? `${entry.output.slice(0, 140)}...` : entry.output}</code>
-                        </div>
-                      )}
-                      <div className="card-actions">
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => handleHistoryExecute(entry)}
-                        >
-                          执行
-                        </button>
-                        <button
-                          className="btn btn-secondary btn-small btn-chip"
-                          onClick={() => openExecutionEditor({
-                            source: 'history',
-                            title: entry.command,
-                            description: getSourceLabel(entry.source),
-                            command: entry.command,
-                          })}
-                        >
-                          调整
-                        </button>
-                        <button
-                          className="btn btn-secondary btn-small btn-chip"
-                          onClick={() => handleHistoryAddToFavorites(entry)}
-                        >
-                          收藏
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AIHistoryPanel
+              entries={recentCommandHistory}
+              historyQuery={historyQuery}
+              historySourceFilter={historySourceFilter}
+              historyDedupe={historyDedupe}
+              historyTrimCount={historyTrimCount}
+              isConfirmingClearHistory={isConfirmingClearHistory}
+              executionEditor={executionEditor?.source === 'history' ? { title: executionEditor.title, command: executionEditor.command } : null}
+              getSourceLabel={getSourceLabel}
+              onHistoryQueryChange={setHistoryQuery}
+              onHistorySourceFilterChange={setHistorySourceFilter}
+              onHistoryDedupeChange={setHistoryDedupe}
+              onHistoryTrimCountChange={setHistoryTrimCount}
+              onTrimHistory={() => void handleTrimHistory()}
+              onClearHistoryRequest={() => setIsConfirmingClearHistory(true)}
+              onClearHistoryConfirm={() => void handleClearHistoryConfirm()}
+              onClearHistoryCancel={() => setIsConfirmingClearHistory(false)}
+              onExecute={handleHistoryExecute}
+              onEdit={(entry) => openExecutionEditor({
+                source: 'history',
+                title: entry.command,
+                description: getSourceLabel(entry.source),
+                command: entry.command,
+              })}
+              onSave={(entry) => void handleHistoryAddToFavorites(entry)}
+              onExecutionEditorCommandChange={updateExecutionEditorCommand}
+              onExecutionEditorRun={handleExecutionEditorRun}
+              onExecutionEditorClose={closeExecutionEditor}
+            />
           )}
 
-          {/* Commands tab */}
           {activeTab === 'commands' && (
-            <div className="commands-panel">
-              <div className="panel-header">常用命令</div>
-              {executionEditor?.source === 'favorite' && (
-                <div className="command-editor-bar">
-                  <div className="command-editor-header">
-                    <span className="command-editor-title">调整命令后执行</span>
-                    <span className="command-editor-subtitle">{executionEditor.title}</span>
-                  </div>
-                  <textarea
-                    className="command-editor-textarea"
-                    value={executionEditor.command}
-                    onChange={(e) => updateExecutionEditorCommand(e.target.value)}
-                    rows={3}
-                  />
-                  <div className="card-actions">
-                    <button
-                      className="btn btn-primary btn-small"
-                      onClick={handleExecutionEditorRun}
-                      disabled={!executionEditor.command.trim()}
-                    >
-                      执行调整后的命令
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-small"
-                      onClick={closeExecutionEditor}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              )}
-              {commandCards.length === 0 ? (
-                <div className="empty-state">
-                  <div>暂无常用命令</div>
-                  <div className="hint">在命令选项中点击"添加到常用"来保存命令</div>
-                </div>
-              ) : (
-                <div className="commands-list">
-                  {Array.from(groupedCards.entries()).map(([category, cards]) => (
-                    <div key={category} className="category-group">
-                      <div
-                        className="category-header"
-                        onClick={() => toggleCategory(category)}
-                      >
-                        <span className="category-toggle">
-                          {collapsedCategories.has(category) ? '▶' : '▼'}
-                        </span>
-                        <span className="category-name">{CATEGORY_LABELS[category] || category}</span>
-                        <span className="category-count">{cards.length}</span>
-                      </div>
-                      {!collapsedCategories.has(category) && (
-                        <div className="category-cards">
-                          {cards.map((card) => (
-                            <div key={card.id} className={`command-card-item danger-${card.dangerLevel}`}>
-                              <div className="card-header">
-                                <span className={`danger-badge danger-${card.dangerLevel}`}>
-                                  {card.dangerLevel === 'red' ? '危险' : card.dangerLevel === 'yellow' ? '注意' : '安全'}
-                                </span>
-                                <span className="card-usage">使用 {card.usageCount} 次</span>
-                              </div>
-                              {editingCardId === card.id && editingCardDraft ? (
-                                <>
-                                  <div className="card-edit-form">
-                                    <input
-                                      className="card-edit-input"
-                                      type="text"
-                                      value={editingCardDraft.naturalLanguage}
-                                      onChange={(e) => handleCardDraftChange('naturalLanguage', e.target.value)}
-                                      placeholder="卡片标题"
-                                    />
-                                    <textarea
-                                      className="card-edit-textarea card-edit-command"
-                                      value={editingCardDraft.command}
-                                      onChange={(e) => handleCardDraftChange('command', e.target.value)}
-                                      placeholder="命令"
-                                      rows={3}
-                                    />
-                                    <textarea
-                                      className="card-edit-textarea"
-                                      value={editingCardDraft.description}
-                                      onChange={(e) => handleCardDraftChange('description', e.target.value)}
-                                      placeholder="说明"
-                                      rows={2}
-                                    />
-                                  </div>
-                                  <div className="card-actions">
-                                    <button
-                                      className={`btn ${card.dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`}
-                                      onClick={() => void handleCardSave(card, true)}
-                                      disabled={!editingCardDraft.command.trim()}
-                                    >
-                                      保存并执行
-                                    </button>
-                                    <button
-                                      className="btn btn-secondary"
-                                      onClick={() => void handleCardSave(card, false)}
-                                      disabled={!editingCardDraft.command.trim()}
-                                    >
-                                      保存
-                                    </button>
-                                    <button
-                                      className="btn btn-secondary"
-                                      onClick={handleCardEditCancel}
-                                    >
-                                      取消
-                                    </button>
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="card-description" onDoubleClick={() => handleCardEditStart(card)}>
-                                    {card.description}
-                                  </div>
-                                  <div className="card-command" onDoubleClick={() => handleCardEditStart(card)}>
-                                    <code>{card.command}</code>
-                                  </div>
-                                  <div className="card-actions">
-                                    <button
-                                      className={`btn ${card.dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`}
-                                      onClick={() => handleCardExecute(card)}
-                                    >
-                                      执行
-                                    </button>
-                                    <button
-                                      className="btn btn-secondary btn-small btn-chip"
-                                      onClick={() => handleCardEditStart(card)}
-                                    >
-                                      编辑
-                                    </button>
-                                    <button
-                                      className="btn btn-secondary btn-small btn-chip"
-                                      onClick={() => removeCommandCard(card.id)}
-                                    >
-                                      删除
-                                    </button>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AIFavoritesPanel
+              groupedCards={groupedCards}
+              collapsedCategories={collapsedCategories}
+              editingCardId={editingCardId}
+              editingCardDraft={editingCardDraft}
+              executionEditor={executionEditor?.source === 'favorite' ? { title: executionEditor.title, command: executionEditor.command } : null}
+              onToggleCategory={toggleCategory}
+              onExecute={handleCardExecute}
+              onEditStart={handleCardEditStart}
+              onEditCancel={handleCardEditCancel}
+              onEditDraftChange={handleCardDraftChange}
+              onSave={(card, executeAfterSave) => void handleCardSave(card, executeAfterSave)}
+              onRemove={removeCommandCard}
+              onExecutionEditorCommandChange={updateExecutionEditorCommand}
+              onExecutionEditorRun={handleExecutionEditorRun}
+              onExecutionEditorClose={closeExecutionEditor}
+            />
           )}
 
-          {/* Builtin commands tab */}
           {activeTab === 'builtin' && (
-            <div className="commands-panel">
-              <div className="panel-header">内置命令 ({builtinCommands.length})</div>
-              {executionEditor?.source === 'builtin' && (
-                <div className="command-editor-bar">
-                  <div className="command-editor-header">
-                    <span className="command-editor-title">调整命令后执行</span>
-                    <span className="command-editor-subtitle">{executionEditor.title}</span>
-                  </div>
-                  <textarea
-                    className="command-editor-textarea"
-                    value={executionEditor.command}
-                    onChange={(e) => updateExecutionEditorCommand(e.target.value)}
-                    rows={3}
-                  />
-                  <div className="card-actions">
-                    <button
-                      className="btn btn-primary btn-small"
-                      onClick={handleExecutionEditorRun}
-                      disabled={!executionEditor.command.trim()}
-                    >
-                      执行调整后的命令
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-small"
-                      onClick={closeExecutionEditor}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              )}
-              {builtinCommands.length === 0 ? (
-                <div className="empty-state">
-                  <div>正在加载...</div>
-                </div>
-              ) : (
-                <div className="commands-list">
-                  {Array.from(groupedBuiltinCommands.entries()).map(([category, cmds]) => (
-                    <div key={category} className="category-group">
-                      <div
-                        className="category-header"
-                        onClick={() => toggleCategory(`builtin-${category}`)}
-                      >
-                        <span className="category-toggle">
-                          {collapsedCategories.has(`builtin-${category}`) ? '▶' : '▼'}
-                        </span>
-                        <span className="category-name">
-                          {CATEGORY_LABELS[category as CommandCategory] || category}
-                        </span>
-                        <span className="category-count">{cmds.length}</span>
-                      </div>
-                      {!collapsedCategories.has(`builtin-${category}`) && (
-                        <div className="category-cards">
-                          {cmds.map((cmd) => (
-                            <div key={cmd.name} className="builtin-command-item">
-                              <div className="builtin-cmd-header">
-                                <span className="builtin-cmd-name">{cmd.name}</span>
-                                <span className="builtin-cmd-category">
-                                  {CATEGORY_LABELS[cmd.category as CommandCategory] || cmd.category}
-                                </span>
-                              </div>
-                              <div className="builtin-cmd-desc">{cmd.description}</div>
-                              {cmd.examples[0] && (
-                                <div className="builtin-cmd-example">
-                                  <code>{cmd.examples[0].command}</code>
-                                  <span className="example-desc">{cmd.examples[0].description}</span>
-                                </div>
-                              )}
-                              <div className="card-actions">
-                                <button
-                                  className="btn btn-primary"
-                                  onClick={() => handleBuiltinExecute(cmd)}
-                                >
-                                  执行
-                                </button>
-                                <button
-                                  className="btn btn-secondary btn-small btn-chip"
-                                  onClick={() => openExecutionEditor({
-                                    source: 'builtin',
-                                    title: cmd.name,
-                                    description: cmd.description,
-                                    command: cmd.examples[0]?.command || cmd.name,
-                                  })}
-                                >
-                                  调整
-                                </button>
-                                <button
-                                  className="btn btn-secondary btn-small btn-chip"
-                                  onClick={() => handleBuiltinAddToFavorites(cmd)}
-                                >
-                                  收藏
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AIBuiltinPanel
+              title="内置命令"
+              groupedBuiltinCommands={groupedReferenceCommands}
+              builtinCommandsCount={builtinReferenceCommands.length}
+              collapsedCategories={collapsedCategories}
+              executionEditor={executionEditor?.source === 'builtin' ? { title: executionEditor.title, command: executionEditor.command } : null}
+              onToggleCategory={toggleCategory}
+              onExecute={handleBuiltinExecute}
+              onCopy={(cmd) => void handleBuiltinCopy(cmd)}
+              onEdit={(cmd) => openExecutionEditor({
+                source: 'builtin',
+                title: cmd.name,
+                description: cmd.description,
+                command: cmd.examples[0]?.command || cmd.name,
+              })}
+              onSave={(cmd) => void handleBuiltinAddToFavorites(cmd)}
+              onExecutionEditorCommandChange={updateExecutionEditorCommand}
+              onExecutionEditorRun={handleExecutionEditorRun}
+              onExecutionEditorClose={closeExecutionEditor}
+            />
+          )}
+
+          {activeTab === 'openclaw' && (
+            <AIBuiltinPanel
+              title="OPENCLAW"
+              groupedBuiltinCommands={groupedOpenclawCommands}
+              builtinCommandsCount={openclawCommands.length}
+              collapsedCategories={collapsedCategories}
+              executionEditor={executionEditor?.source === 'builtin' ? { title: executionEditor.title, command: executionEditor.command } : null}
+              onToggleCategory={toggleCategory}
+              onExecute={handleBuiltinExecute}
+              onCopy={(cmd) => void handleBuiltinCopy(cmd)}
+              onEdit={(cmd) => openExecutionEditor({
+                source: 'builtin',
+                title: cmd.name,
+                description: cmd.description,
+                command: cmd.examples[0]?.command || cmd.name,
+              })}
+              onSave={(cmd) => void handleBuiltinAddToFavorites(cmd)}
+              onExecutionEditorCommandChange={updateExecutionEditorCommand}
+              onExecutionEditorRun={handleExecutionEditorRun}
+              onExecutionEditorClose={closeExecutionEditor}
+            />
           )}
         </div>
       </div>

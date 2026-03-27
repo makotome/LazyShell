@@ -17,6 +17,8 @@ pub struct BuiltinCommand {
     pub name: String,
     pub description: String,
     pub category: String,
+    #[serde(default)]
+    pub surface: Option<String>,
     pub parameters: Vec<Parameter>,
     pub examples: Vec<Example>,
     pub scenarios: Vec<String>,

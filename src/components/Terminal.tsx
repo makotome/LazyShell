@@ -10,10 +10,9 @@ interface TerminalProps {
   tabId: string;
   serverId: string;
   isActive: boolean;
-  onCommandObserved?: (command: string) => void;
 }
 
-export function Terminal({ tabId, serverId, isActive, onCommandObserved }: TerminalProps) {
+export function Terminal({ tabId, serverId, isActive }: TerminalProps) {
   const BACKGROUND_RECONNECT_THRESHOLD_MS = 60_000;
   const ACTIVE_IDLE_RECONNECT_THRESHOLD_MS = 5 * 60_000;
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -22,7 +21,6 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalSizeRef = useRef({ rows: 24, cols: 80 });
   const recoveringSessionRef = useRef(false);
-  const commandBufferRef = useRef('');
   const isActiveRef = useRef(isActive);
   const inactiveSinceRef = useRef<number | null>(null);
   const lastInactiveDurationRef = useRef(0);
@@ -179,44 +177,6 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
 
     window.setTimeout(flushChunk, 0);
   }, []);
-
-  const trackObservedCommand = useCallback((data: string) => {
-    const stripped = data
-      .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-      .replace(/\x1bO./g, '')
-      .replace(/\x1b./g, '');
-
-    if (!stripped) return;
-
-    let buffer = commandBufferRef.current;
-
-    for (const char of stripped) {
-      if (char === '\r' || char === '\n') {
-        const command = buffer.trim();
-        if (command) {
-          onCommandObserved?.(command);
-        }
-        buffer = '';
-        continue;
-      }
-
-      if (char === '\u007f' || char === '\b') {
-        buffer = buffer.slice(0, -1);
-        continue;
-      }
-
-      if (char === '\u0015' || char === '\u0003') {
-        buffer = '';
-        continue;
-      }
-
-      if (char >= ' ' && char !== '\u007f') {
-        buffer += char;
-      }
-    }
-
-    commandBufferRef.current = buffer;
-  }, [onCommandObserved]);
 
   // Initialize xterm
   useEffect(() => {
@@ -397,12 +357,11 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
         .replace(/\x1bOB/g, '\x1b[B'); // SS3 Down -> CSI Down
     };
 
-      const handleData = (data: string) => {
+    const handleData = (data: string) => {
       if (!data || data.length === 0) {
         return;
       }
       const converted = convertEscapes(data);
-      trackObservedCommand(converted);
       sendInput(converted);
     };
 
@@ -411,7 +370,7 @@ export function Terminal({ tabId, serverId, isActive, onCommandObserved }: Termi
     return () => {
       disposable.dispose();
     };
-  }, [sendInput, trackObservedCommand]);
+  }, [sendInput]);
 
   // Copy current selection into clipboard when the user selects text in xterm.
   useEffect(() => {

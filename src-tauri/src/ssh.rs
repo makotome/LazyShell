@@ -926,14 +926,14 @@ mod tests {
     #[test]
     fn test_dangerous_detection() {
         assert!(is_dangerous_command_public("rm -rf /tmp/test"));
-        assert!(is_dangerous_command("rm -rf /*"));
-        assert!(is_dangerous_command("shutdown -h now"));
-        assert!(is_dangerous_command("reboot"));
-        assert!(is_dangerous_command("dd if=/dev/zero of=/dev/sda"));
-        assert!(is_dangerous_command("mkfs.ext4 /dev/sdb1"));
+        assert!(is_dangerous_command_public("rm -rf /*"));
+        assert!(is_dangerous_command_public("shutdown -h now"));
+        assert!(is_dangerous_command_public("reboot"));
+        assert!(is_dangerous_command_public("dd if=/dev/zero of=/dev/sda"));
+        assert!(is_dangerous_command_public("mkfs.ext4 /dev/sdb1"));
 
-        assert!(!is_dangerous_command("ls -la"));
-        assert!(!is_dangerous_command("cat /etc/passwd"));
-        assert!(!is_dangerous_command("ps aux"));
+        assert!(!is_dangerous_command_public("ls -la"));
+        assert!(!is_dangerous_command_public("cat /etc/passwd"));
+        assert!(!is_dangerous_command_public("ps aux"));
     }
 }

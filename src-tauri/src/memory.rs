@@ -109,6 +109,7 @@ pub struct ChatHistoryEntry {
     pub server_id: String,
     pub role: String,
     pub content: String,
+    pub source_label: Option<String>,
     pub command: Option<String>,
     pub explanation: Option<String>,
     pub danger_level: Option<String>,
@@ -269,6 +270,20 @@ fn normalize_command_history_entry(mut entry: CommandHistoryEntry) -> CommandHis
     entry
 }
 
+fn paginate_chat_history_entries(
+    entries: &[ChatHistoryEntry],
+    offset: usize,
+    limit: usize,
+) -> Vec<ChatHistoryEntry> {
+    if limit == 0 || offset >= entries.len() {
+        return Vec::new();
+    }
+
+    let end = entries.len().saturating_sub(offset);
+    let start = end.saturating_sub(limit);
+    entries[start..end].to_vec()
+}
+
 // ============================================================================
 // Tauri Commands
 // ============================================================================
@@ -296,17 +311,9 @@ pub fn load_chat_history(server_id: String, offset: u32, limit: u32) -> Result<C
 
     let history_file: ChatHistoryFile = serde_json::from_str(&content).map_err(|e| e.to_string())?;
 
-    // Apply pagination
+    // Return the newest page first while preserving chronological order within each page.
     let entries = history_file.entries;
-    let _total = entries.len() as u32;
-    let start = offset as usize;
-    let end = (offset + limit) as usize;
-
-    let paginated_entries = if start >= entries.len() {
-        Vec::new()
-    } else {
-        entries[start..end.min(entries.len())].to_vec()
-    };
+    let paginated_entries = paginate_chat_history_entries(&entries, offset as usize, limit as usize);
 
     Ok(ChatHistoryFile {
         server_id,
@@ -700,4 +707,56 @@ pub fn cleanup_server_memory(server_id: String) -> Result<(), String> {
 pub fn determine_command_danger_level(command: String) -> Result<String, String> {
     let level = determine_danger_level(&command);
     Ok(level.as_str().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_entry(id: usize) -> ChatHistoryEntry {
+        ChatHistoryEntry {
+            id: format!("chat-{id}"),
+            server_id: "server-1".to_string(),
+            role: "ai".to_string(),
+            content: format!("message-{id}"),
+            source_label: None,
+            command: None,
+            explanation: None,
+            danger_level: Some("green".to_string()),
+            options: None,
+            timestamp: id as u64,
+        }
+    }
+
+    #[test]
+    fn paginates_from_latest_entries_first() {
+        let entries = (0..5).map(make_entry).collect::<Vec<_>>();
+
+        let page = paginate_chat_history_entries(&entries, 0, 2);
+
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].id, "chat-3");
+        assert_eq!(page[1].id, "chat-4");
+    }
+
+    #[test]
+    fn paginates_older_entries_on_next_page() {
+        let entries = (0..5).map(make_entry).collect::<Vec<_>>();
+
+        let page = paginate_chat_history_entries(&entries, 2, 2);
+
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].id, "chat-1");
+        assert_eq!(page[1].id, "chat-2");
+    }
+
+    #[test]
+    fn paginates_partial_oldest_page_without_reversing_order() {
+        let entries = (0..5).map(make_entry).collect::<Vec<_>>();
+
+        let page = paginate_chat_history_entries(&entries, 4, 3);
+
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].id, "chat-0");
+    }
 }

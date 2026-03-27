@@ -33,7 +33,7 @@ export function useMemory({ serverId }: UseMemoryOptions) {
         offset,
         limit,
       });
-      setChatHistory(prev => offset === 0 ? result.entries : [...prev, ...result.entries]);
+      setChatHistory(prev => offset === 0 ? result.entries : [...result.entries, ...prev]);
       setHasMoreHistory(result.entries.length >= limit);
       return result;
     } catch (err) {

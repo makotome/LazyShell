@@ -279,28 +279,6 @@ function App() {
     }
   }, [activeTab, activeTabId, appendHistoryEntry]);
 
-  const handleObservedShellCommand = useCallback((command: string) => {
-    if (!activeTab) return;
-
-    const historyEntry: CommandHistory = {
-      command,
-      output: '交互式 shell 命令，输出未捕获。',
-      exitCode: 0,
-      timestamp: Date.now(),
-      source: 'terminal',
-    };
-
-    appendHistoryEntry(activeTab.id, activeTab.serverId, historyEntry);
-
-    const dirMatch = command.match(/^cd\s+(.+)$/);
-    if (dirMatch) {
-      const newDir = dirMatch[1];
-      setTabs(prev => prev.map(t =>
-        t.id === activeTab.id ? { ...t, currentDir: newDir } : t
-      ));
-    }
-  }, [activeTab, appendHistoryEntry]);
-
   const reloadActiveCommandHistory = useCallback(async () => {
     if (!activeTab) return;
 
@@ -558,7 +536,6 @@ function App() {
                   tabId={tab.id}
                   serverId={tab.serverId}
                   isActive={tab.id === activeTabId}
-                  onCommandObserved={tab.id === activeTabId ? handleObservedShellCommand : undefined}
                 />
               ))}
             </div>

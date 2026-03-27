@@ -341,77 +341,73 @@ fn build_user_prompt(user_input: &str, context: &TerminalContext) -> String {
 }
 
 fn parse_ai_response(content: &str) -> Result<AIResponse, AIError> {
-    // Try to extract JSON from the response
-    if let Some(start) = content.find('{') {
-        if let Some(end) = content.rfind('}') {
-            let json_str = &content[start..=end];
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
-                // Check if the JSON explicitly declares intent: "clarification"
-                let intent_str = parsed.get("intent").and_then(|v| v.as_str()).unwrap_or("");
+    if let Some(parsed) = extract_json_payload(content)
+        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(&json_str).ok())
+    {
+        // Check if the JSON explicitly declares intent: "clarification"
+        let intent_str = parsed.get("intent").and_then(|v| v.as_str()).unwrap_or("");
 
-                if intent_str == "clarification" {
-                    let question = parsed.get("question").and_then(|v| v.as_str()).unwrap_or("");
-                    let explanation = parsed.get("explanation").and_then(|v| v.as_str()).unwrap_or("");
-                    let display = if !question.is_empty() { question } else { explanation };
-                    return Ok(AIResponse {
-                        command: None,
-                        explanation: Some(display.to_string()),
-                        is_dangerous: false,
-                        options: None,
-                        intent: "clarification".to_string(),
-                    });
-                }
+        if intent_str == "clarification" {
+            let question = parsed.get("question").and_then(|v| v.as_str()).unwrap_or("");
+            let explanation = parsed.get("explanation").and_then(|v| v.as_str()).unwrap_or("");
+            let display = if !question.is_empty() { question } else { explanation };
+            return Ok(AIResponse {
+                command: None,
+                explanation: Some(display.to_string()),
+                is_dangerous: false,
+                options: None,
+                intent: "clarification".to_string(),
+            });
+        }
 
-                // Check if this is an array of options
-                if let Some(options_array) = parsed.get("options").and_then(|v| v.as_array()) {
-                    let parsed_options: Vec<AICommandOption> = options_array
-                        .iter()
-                        .filter_map(|opt| {
-                            Some(AICommandOption {
-                                command: opt.get("command")?.as_str()?.to_string(),
-                                description: opt.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                is_dangerous: opt.get("isDangerous").and_then(|v| v.as_bool()).unwrap_or(false),
-                                reason: opt.get("reason").and_then(|v| v.as_str()).map(String::from),
-                            })
-                        })
-                        .collect();
+        // Check if this is an array of options
+        if let Some(options_array) = parsed.get("options").and_then(|v| v.as_array()) {
+            let parsed_options: Vec<AICommandOption> = options_array
+                .iter()
+                .filter_map(|opt| {
+                    Some(AICommandOption {
+                        command: opt.get("command")?.as_str()?.to_string(),
+                        description: opt.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        is_dangerous: opt.get("isDangerous").and_then(|v| v.as_bool()).unwrap_or(false),
+                        reason: opt.get("reason").and_then(|v| v.as_str()).map(String::from),
+                    })
+                })
+                .collect();
 
-                    if !parsed_options.is_empty() {
-                        return Ok(AIResponse {
-                            command: None,
-                            explanation: parsed.get("explanation").and_then(|v| v.as_str()).map(String::from),
-                            is_dangerous: false,
-                            options: Some(parsed_options),
-                            intent: "multiple".to_string(),
-                        });
-                    }
-                }
-
-                // Single command mode
-                let command = parsed
-                    .get("command")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let explanation = parsed
-                    .get("explanation")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let is_dangerous = parsed
-                    .get("isDangerous")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
+            if !parsed_options.is_empty() {
                 return Ok(AIResponse {
-                    command: Some(command),
-                    explanation: Some(explanation),
-                    is_dangerous,
-                    options: None,
-                    intent: "single".to_string(),
+                    command: None,
+                    explanation: parsed.get("explanation").and_then(|v| v.as_str()).map(String::from),
+                    is_dangerous: false,
+                    options: Some(parsed_options),
+                    intent: "multiple".to_string(),
                 });
             }
         }
+
+        // Single command mode
+        let command = parsed
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let explanation = parsed
+            .get("explanation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let is_dangerous = parsed
+            .get("isDangerous")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        return Ok(AIResponse {
+            command: Some(command),
+            explanation: Some(explanation),
+            is_dangerous,
+            options: None,
+            intent: "single".to_string(),
+        });
     }
 
     // Check if response seems to be a clarification question
@@ -445,6 +441,39 @@ fn parse_ai_response(content: &str) -> Result<AIResponse, AIError> {
         options: None,
         intent: "single".to_string(),
     })
+}
+
+fn extract_json_payload(content: &str) -> Option<String> {
+    let trimmed = content.trim();
+
+    if trimmed.starts_with("```") {
+        let mut lines = trimmed.lines();
+        let first = lines.next()?;
+        if first.starts_with("```") {
+            let inner = lines
+                .take_while(|line| !line.trim_start().starts_with("```"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let inner_trimmed = inner.trim();
+            if !inner_trimmed.is_empty() {
+                return Some(inner_trimmed.to_string());
+            }
+        }
+    }
+
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        return Some(trimmed.to_string());
+    }
+
+    if let Some(start) = trimmed.find('{') {
+        if let Some(end) = trimmed.rfind('}') {
+            if end > start {
+                return Some(trimmed[start..=end].to_string());
+            }
+        }
+    }
+
+    None
 }
 
 fn is_dangerous_command(command: &str) -> bool {

@@ -1194,6 +1194,579 @@
         {"command": "sha256sum -c checksums.sha256", "description": "验证SHA256"}
       ],
       "scenarios": ["SHA256校验", "文件完整性", "安全校验"]
+    },
+    {
+      "name": "OpenClaw 安装脚本",
+      "description": "OpenClaw 基础入门｜使用官方安装脚本快速安装最新 CLI",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "curl -fsSL https://openclaw.ai/install.sh | bash", "description": "按官方推荐方式安装 OpenClaw CLI"}
+      ],
+      "scenarios": ["openclaw", "安装", "install", "CLI 部署", "install.sh"]
+    },
+    {
+      "name": "npm install -g openclaw@latest",
+      "description": "OpenClaw 基础入门｜通过 npm 安装或升级 OpenClaw CLI",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "npm install -g openclaw@latest", "description": "通过 npm 安装或升级 OpenClaw CLI"}
+      ],
+      "scenarios": ["openclaw", "安装", "升级", "npm", "latest"]
+    },
+    {
+      "name": "openclaw onboard",
+      "description": "OpenClaw 基础入门｜运行引导流程，初始化网关、模型与频道",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "--install-daemon", "description": "引导完成后安装守护进程"}
+      ],
+      "examples": [
+        {"command": "openclaw onboard", "description": "交互式完成 OpenClaw 初始配置"},
+        {"command": "openclaw onboard --install-daemon", "description": "初始化后顺便安装守护服务"}
+      ],
+      "scenarios": ["openclaw", "onboard", "初始化", "引导配置", "首次配置"]
+    },
+    {
+      "name": "openclaw --version",
+      "description": "OpenClaw 基础入门｜查看当前安装版本",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "-v", "description": "版本号短参数"}
+      ],
+      "examples": [
+        {"command": "openclaw --version", "description": "查看当前 OpenClaw 版本"}
+      ],
+      "scenarios": ["openclaw", "version", "版本", "检查版本"]
+    },
+    {
+      "name": "openclaw --help",
+      "description": "OpenClaw 基础入门｜查看全局帮助与子命令说明",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "-h", "description": "帮助短参数"}
+      ],
+      "examples": [
+        {"command": "openclaw --help", "description": "查看全局帮助"},
+        {"command": "openclaw help gateway", "description": "查看 gateway 子命令详情"}
+      ],
+      "scenarios": ["openclaw", "help", "帮助", "命令说明"]
+    },
+    {
+      "name": "openclaw gateway run",
+      "description": "OpenClaw 网关｜前台运行 Gateway，适合调试",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway run", "description": "前台运行 Gateway 并直接输出日志"}
+      ],
+      "scenarios": ["openclaw", "gateway", "run", "前台运行", "调试"]
+    },
+    {
+      "name": "openclaw gateway start",
+      "description": "OpenClaw 网关｜后台启动 Gateway，适合生产环境",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway start", "description": "后台启动 Gateway"}
+      ],
+      "scenarios": ["openclaw", "gateway", "start", "后台启动"]
+    },
+    {
+      "name": "openclaw gateway stop",
+      "description": "OpenClaw 网关｜停止后台 Gateway 服务",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway stop", "description": "停止后台 Gateway"}
+      ],
+      "scenarios": ["openclaw", "gateway", "stop", "停止服务"]
+    },
+    {
+      "name": "openclaw gateway restart",
+      "description": "OpenClaw 网关｜重启 Gateway，使配置变更生效",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway restart", "description": "重启 Gateway 服务"}
+      ],
+      "scenarios": ["openclaw", "gateway", "restart", "重启服务"]
+    },
+    {
+      "name": "openclaw gateway status",
+      "description": "OpenClaw 网关｜查看 Gateway 状态和连通性",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway status", "description": "检查 Gateway 是否正常运行"}
+      ],
+      "scenarios": ["openclaw", "gateway", "status", "状态检查"]
+    },
+    {
+      "name": "openclaw gateway install",
+      "description": "OpenClaw 网关｜安装 Gateway 开机自启服务",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway install", "description": "安装 Gateway 自启动服务"}
+      ],
+      "scenarios": ["openclaw", "gateway", "install", "自启动", "daemon"]
+    },
+    {
+      "name": "openclaw gateway uninstall",
+      "description": "OpenClaw 网关｜卸载 Gateway 开机自启服务",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway uninstall", "description": "卸载 Gateway 自启动服务"}
+      ],
+      "scenarios": ["openclaw", "gateway", "uninstall", "取消自启"]
+    },
+    {
+      "name": "openclaw gateway probe",
+      "description": "OpenClaw 网关｜探测 Gateway，可用于排查连接问题",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [],
+      "examples": [
+        {"command": "openclaw gateway probe", "description": "执行 Gateway 探测"}
+      ],
+      "scenarios": ["openclaw", "gateway", "probe", "探测", "故障排查"]
+    },
+    {
+      "name": "openclaw logs --follow",
+      "description": "OpenClaw 日志｜查看并实时跟踪日志",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "--follow", "description": "持续追踪新增日志"},
+        {"flag": "--lines", "description": "限制初始输出行数"}
+      ],
+      "examples": [
+        {"command": "openclaw logs --follow", "description": "实时跟踪 OpenClaw 日志"},
+        {"command": "openclaw logs --lines 200", "description": "查看最近 200 行日志"}
+      ],
+      "scenarios": ["openclaw", "logs", "日志", "follow", "排错"]
+    },
+    {
+      "name": "openclaw status",
+      "description": "OpenClaw 健康检查｜查看整体状态、深度状态和使用量",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "--deep", "description": "更深入的状态检查"},
+        {"flag": "--usage", "description": "显示使用量统计"}
+      ],
+      "examples": [
+        {"command": "openclaw status", "description": "查看 OpenClaw 当前状态"},
+        {"command": "openclaw status --deep", "description": "执行更深入的状态检查"},
+        {"command": "openclaw status --usage", "description": "查看使用量统计"}
+      ],
+      "scenarios": ["openclaw", "status", "健康检查", "usage", "状态"]
+    },
+    {
+      "name": "openclaw doctor",
+      "description": "OpenClaw 健康检查｜体检并按需自动修复问题",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "--repair", "description": "尝试自动修复问题"},
+        {"flag": "--fix", "description": "兼容旧写法的自动修复参数"},
+        {"flag": "--deep", "description": "执行更深入的环境扫描"}
+      ],
+      "examples": [
+        {"command": "openclaw doctor", "description": "执行基础健康检查"},
+        {"command": "openclaw doctor --repair", "description": "自动修复可修复问题"},
+        {"command": "openclaw doctor --deep", "description": "执行更深入的冲突扫描"}
+      ],
+      "scenarios": ["openclaw", "doctor", "健康检查", "修复", "repair", "fix"]
+    },
+    {
+      "name": "openclaw config get gateway",
+      "description": "OpenClaw 配置管理｜读取配置路径，也可查看配置文件位置",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "get <path>", "description": "读取指定配置路径"},
+        {"flag": "file", "description": "显示当前配置文件路径"},
+        {"flag": "validate", "description": "校验配置合法性"}
+      ],
+      "examples": [
+        {"command": "openclaw config get gateway", "description": "查看 Gateway 配置"},
+        {"command": "openclaw config get channels", "description": "查看频道配置"},
+        {"command": "openclaw config file", "description": "显示配置文件路径"}
+      ],
+      "scenarios": ["openclaw", "config", "get", "gateway", "channels", "读取配置"]
+    },
+    {
+      "name": "openclaw config set gateway.port 18789",
+      "description": "OpenClaw 配置管理｜设置或移除配置项",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "set <path> <value>", "description": "设置配置值"},
+        {"flag": "unset <path>", "description": "删除配置值"}
+      ],
+      "examples": [
+        {"command": "openclaw config set gateway.port 18789", "description": "修改 Gateway 监听端口"},
+        {"command": "openclaw config set agents.defaults.model.primary \"claude-sonnet-4\"", "description": "设置默认主模型"},
+        {"command": "openclaw config unset gateway.auth.token", "description": "删除指定配置项"}
+      ],
+      "scenarios": ["openclaw", "config", "set", "unset", "修改配置", "端口", "模型"]
+    },
+    {
+      "name": "openclaw models",
+      "description": "OpenClaw 模型管理｜查看模型、探测可用性并设置默认模型",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "list --all", "description": "列出全部可选模型"},
+        {"flag": "status --probe", "description": "探测模型可用性"},
+        {"flag": "set <model>", "description": "设置默认主模型"},
+        {"flag": "set-image <model>", "description": "设置图像模型"}
+      ],
+      "examples": [
+        {"command": "openclaw models", "description": "查看模型配置与认证状态"},
+        {"command": "openclaw models list --all", "description": "列出全部可用模型"},
+        {"command": "openclaw models status --probe", "description": "主动探测模型可用性"},
+        {"command": "openclaw models set claude-sonnet-4", "description": "设置默认主模型"}
+      ],
+      "scenarios": ["openclaw", "models", "模型", "status", "set-image"]
+    },
+    {
+      "name": "openclaw models auth order get",
+      "description": "OpenClaw 模型管理｜查看或调整认证优先级顺序",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "get", "description": "查看当前认证优先级"},
+        {"flag": "set", "description": "设置新的认证顺序"}
+      ],
+      "examples": [
+        {"command": "openclaw models auth order get", "description": "查看模型认证优先级"},
+        {"command": "openclaw models auth order set", "description": "设置认证顺序，具体参数可先看 help"}
+      ],
+      "scenarios": ["openclaw", "models", "auth", "order", "优先级"]
+    },
+    {
+      "name": "openclaw channels list",
+      "description": "OpenClaw 频道管理｜列出频道并检查连接状态",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "status", "description": "查看频道连接状态"},
+        {"flag": "logs", "description": "查看频道日志"}
+      ],
+      "examples": [
+        {"command": "openclaw channels list", "description": "列出所有已配置频道"},
+        {"command": "openclaw channels status", "description": "查看频道连接状态"},
+        {"command": "openclaw channels logs --channel all --lines 200", "description": "查看频道日志"}
+      ],
+      "scenarios": ["openclaw", "channels", "list", "status", "logs", "频道"]
+    },
+    {
+      "name": "openclaw channels add",
+      "description": "OpenClaw 频道管理｜添加、登录、登出或删除频道",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "add", "description": "新增频道"},
+        {"flag": "remove", "description": "删除频道"},
+        {"flag": "login", "description": "登录频道会话"},
+        {"flag": "logout", "description": "退出频道会话"}
+      ],
+      "examples": [
+        {"command": "openclaw channels add --channel telegram --account alerts --name \"Alerts Bot\" --token $TELEGRAM_BOT_TOKEN", "description": "添加 Telegram 频道"},
+        {"command": "openclaw channels login --channel whatsapp", "description": "登录 WhatsApp Web 频道"},
+        {"command": "openclaw channels remove --channel discord --account work --delete", "description": "删除指定频道"}
+      ],
+      "scenarios": ["openclaw", "channels", "add", "remove", "login", "logout", "telegram", "whatsapp"]
+    },
+    {
+      "name": "openclaw message send",
+      "description": "OpenClaw 消息操作｜发送、广播、投票、编辑和删除消息",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "broadcast", "description": "广播消息"},
+        {"flag": "poll", "description": "创建投票"},
+        {"flag": "react", "description": "添加消息反应"},
+        {"flag": "edit", "description": "编辑消息"},
+        {"flag": "delete", "description": "删除消息"}
+      ],
+      "examples": [
+        {"command": "openclaw message send --target +15555550123 --message \"hello\"", "description": "发送单条消息"},
+        {"command": "openclaw message broadcast --channel telegram --message \"通知\"", "description": "向频道广播消息"},
+        {"command": "openclaw message poll", "description": "创建投票，具体参数见 help"}
+      ],
+      "scenarios": ["openclaw", "message", "send", "broadcast", "poll", "edit", "delete"]
+    },
+    {
+      "name": "openclaw agent",
+      "description": "OpenClaw 智能体｜直接调用指定 agent 执行一次任务",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "--agent", "description": "指定智能体"},
+        {"flag": "--message", "description": "直接提供任务内容"}
+      ],
+      "examples": [
+        {"command": "openclaw agent --agent ops --message \"Summarize the latest deployment errors\"", "description": "使用指定 agent 执行任务"}
+      ],
+      "scenarios": ["openclaw", "agent", "智能体", "单次任务"]
+    },
+    {
+      "name": "openclaw agents list",
+      "description": "OpenClaw 智能体｜列出、绑定、解绑和删除智能体",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "add", "description": "新增智能体"},
+        {"flag": "bindings", "description": "查看绑定关系"},
+        {"flag": "bind", "description": "绑定频道或入口"},
+        {"flag": "unbind", "description": "解除绑定"},
+        {"flag": "delete", "description": "删除智能体"}
+      ],
+      "examples": [
+        {"command": "openclaw agents list", "description": "列出所有智能体"},
+        {"command": "openclaw agents add work --workspace ~/work-agent", "description": "添加工作区智能体"},
+        {"command": "openclaw agents delete work --force", "description": "强制删除指定智能体"}
+      ],
+      "scenarios": ["openclaw", "agents", "list", "bind", "unbind", "delete"]
+    },
+    {
+      "name": "openclaw sessions",
+      "description": "OpenClaw 会话｜查看会话列表并清理陈旧会话",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "--all-agents", "description": "查看所有智能体会话"},
+        {"flag": "cleanup", "description": "清理陈旧会话"},
+        {"flag": "--dry-run", "description": "只预览清理结果"}
+      ],
+      "examples": [
+        {"command": "openclaw sessions", "description": "查看当前智能体会话"},
+        {"command": "openclaw sessions --all-agents", "description": "查看全部智能体会话"},
+        {"command": "openclaw sessions cleanup --dry-run", "description": "预览会话清理结果"}
+      ],
+      "scenarios": ["openclaw", "sessions", "会话", "cleanup", "all-agents"]
+    },
+    {
+      "name": "openclaw cron list",
+      "description": "OpenClaw 自动化｜查看、创建、编辑和立即触发定时任务",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "status", "description": "查看任务状态"},
+        {"flag": "add", "description": "创建新任务"},
+        {"flag": "edit", "description": "编辑现有任务"},
+        {"flag": "rm", "description": "删除任务"},
+        {"flag": "run", "description": "立即执行任务"},
+        {"flag": "runs", "description": "查看执行记录"}
+      ],
+      "examples": [
+        {"command": "openclaw cron list", "description": "列出所有定时任务"},
+        {"command": "openclaw cron add --name \"Morning brief\" --cron \"0 7 * * *\" --session isolated --message \"Summarize overnight updates.\" --light-context --no-deliver", "description": "创建一个晨报任务"},
+        {"command": "openclaw cron run <job-id>", "description": "立即触发指定任务"}
+      ],
+      "scenarios": ["openclaw", "cron", "定时任务", "automation", "run"]
+    },
+    {
+      "name": "openclaw hooks list",
+      "description": "OpenClaw Hooks｜列出、检查、启用或禁用 Hooks",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "info <hookId>", "description": "查看 Hook 详情"},
+        {"flag": "check", "description": "检查 Hook 状态"},
+        {"flag": "enable <hookId>", "description": "启用 Hook"},
+        {"flag": "disable <hookId>", "description": "禁用 Hook"}
+      ],
+      "examples": [
+        {"command": "openclaw hooks list", "description": "列出所有已安装 Hooks"},
+        {"command": "openclaw hooks info session-memory", "description": "查看 Hook 详情"},
+        {"command": "openclaw hooks enable session-memory", "description": "启用指定 Hook"}
+      ],
+      "scenarios": ["openclaw", "hooks", "hook", "enable", "disable", "list"]
+    },
+    {
+      "name": "openclaw nodes list",
+      "description": "OpenClaw 节点管理｜查看节点、审批配对并远程执行命令",
+      "category": "openclaw",
+      "surface": "shell",
+      "parameters": [
+        {"flag": "pending", "description": "查看待审批节点"},
+        {"flag": "approve <requestId>", "description": "批准配对请求"},
+        {"flag": "status --connected", "description": "查看已连接节点状态"},
+        {"flag": "run --node <name> --raw <cmd>", "description": "在节点执行原始命令"}
+      ],
+      "examples": [
+        {"command": "openclaw nodes list", "description": "列出所有已知节点"},
+        {"command": "openclaw nodes pending", "description": "查看待审批节点"},
+        {"command": "openclaw nodes run --node mac-mini --raw \"git status\"", "description": "在指定节点执行命令"}
+      ],
+      "scenarios": ["openclaw", "nodes", "节点", "approve", "run", "远程执行"]
+    },
+    {
+      "name": "/help",
+      "description": "OpenClaw 聊天斜杠命令｜显示斜杠命令帮助",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [],
+      "examples": [
+        {"command": "/help", "description": "查看可用斜杠命令"}
+      ],
+      "scenarios": ["openclaw", "slash", "help", "聊天命令", "斜杠命令"]
+    },
+    {
+      "name": "/model",
+      "description": "OpenClaw 聊天斜杠命令｜切换当前会话模型",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [
+        {"flag": "<model>", "description": "目标模型名"}
+      ],
+      "examples": [
+        {"command": "/model claude-sonnet-4", "description": "切换到指定模型"}
+      ],
+      "scenarios": ["openclaw", "slash", "model", "切换模型"]
+    },
+    {
+      "name": "/status",
+      "description": "OpenClaw 聊天斜杠命令｜显示当前会话状态",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [],
+      "examples": [
+        {"command": "/status", "description": "查看当前会话状态"}
+      ],
+      "scenarios": ["openclaw", "slash", "status", "会话状态"]
+    },
+    {
+      "name": "/new",
+      "description": "OpenClaw 聊天斜杠命令｜新建会话，可选指定模型",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [
+        {"flag": "[model]", "description": "可选的新会话模型"}
+      ],
+      "examples": [
+        {"command": "/new gpt-5", "description": "新建会话并指定模型"}
+      ],
+      "scenarios": ["openclaw", "slash", "new", "新会话"]
+    },
+    {
+      "name": "/reset",
+      "description": "OpenClaw 聊天斜杠命令｜重置当前会话上下文",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [],
+      "examples": [
+        {"command": "/reset", "description": "重置当前会话"}
+      ],
+      "scenarios": ["openclaw", "slash", "reset", "清空上下文"]
+    },
+    {
+      "name": "/compact",
+      "description": "OpenClaw 聊天斜杠命令｜压缩当前上下文，节省 Token",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [],
+      "examples": [
+        {"command": "/compact", "description": "压缩当前会话上下文"}
+      ],
+      "scenarios": ["openclaw", "slash", "compact", "压缩上下文", "token"]
+    },
+    {
+      "name": "/think",
+      "description": "OpenClaw 聊天斜杠命令｜设置思考深度",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [
+        {"flag": "<level>", "description": "如 off、low、medium、high"}
+      ],
+      "examples": [
+        {"command": "/think high", "description": "将思考深度设为 high"}
+      ],
+      "scenarios": ["openclaw", "slash", "think", "思考深度", "reasoning"]
+    },
+    {
+      "name": "/verbose",
+      "description": "OpenClaw 聊天斜杠命令｜开关详细模式",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [
+        {"flag": "on|off", "description": "开启或关闭详细模式"}
+      ],
+      "examples": [
+        {"command": "/verbose on", "description": "开启详细模式"}
+      ],
+      "scenarios": ["openclaw", "slash", "verbose", "详细模式"]
+    },
+    {
+      "name": "/usage",
+      "description": "OpenClaw 聊天斜杠命令｜控制 Token 与用量信息展示级别",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [
+        {"flag": "off|summary|full", "description": "用量展示级别"}
+      ],
+      "examples": [
+        {"command": "/usage full", "description": "显示完整用量信息"}
+      ],
+      "scenarios": ["openclaw", "slash", "usage", "token", "用量", "费用"]
+    },
+    {
+      "name": "/subagents list",
+      "description": "OpenClaw 聊天斜杠命令｜查看与终止子代理",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [
+        {"flag": "kill <id>", "description": "终止指定子代理"},
+        {"flag": "info <id>", "description": "查看子代理详情"}
+      ],
+      "examples": [
+        {"command": "/subagents list", "description": "列出当前子代理"},
+        {"command": "/subagents kill <id>", "description": "终止指定子代理"}
+      ],
+      "scenarios": ["openclaw", "slash", "subagents", "子代理", "kill"]
+    },
+    {
+      "name": "/skill",
+      "description": "OpenClaw 聊天斜杠命令｜运行技能或快捷工具",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [
+        {"flag": "<skill>", "description": "技能名称与参数"}
+      ],
+      "examples": [
+        {"command": "/skill weather 上海", "description": "调用天气技能"}
+      ],
+      "scenarios": ["openclaw", "slash", "skill", "技能", "tool"]
+    },
+    {
+      "name": "/whoami",
+      "description": "OpenClaw 聊天斜杠命令｜显示当前身份和权限信息",
+      "category": "openclaw",
+      "surface": "chat",
+      "parameters": [],
+      "examples": [
+        {"command": "/whoami", "description": "查看当前身份与权限"}
+      ],
+      "scenarios": ["openclaw", "slash", "whoami", "身份", "权限"]
     }
   ]
 }
