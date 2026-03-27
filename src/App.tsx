@@ -13,6 +13,81 @@ import { useCommandDatabase } from './hooks/useCommandDatabase';
 import type { ServerInfo, CommandHistory, CommandHistoryFile, TerminalContext, CommandOutput, ServerTab, LayoutMode } from './types';
 import './App.css';
 
+function normalizePosixPath(path: string): string {
+  if (!path.trim()) {
+    return '/';
+  }
+
+  const absolute = path.startsWith('/');
+  const segments: string[] = [];
+
+  for (const segment of path.split('/')) {
+    if (!segment || segment === '.') {
+      continue;
+    }
+    if (segment === '..') {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  const joined = segments.join('/');
+  if (absolute) {
+    return joined ? `/${joined}` : '/';
+  }
+
+  return joined ? `/${joined}` : '/';
+}
+
+function resolveNextDirectory(command: string, currentDir: string, previousDir?: string): { currentDir: string; previousDir?: string } | null {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parts = trimmed.split(/\s+/);
+  const [head, ...rest] = parts;
+  const target = rest.join(' ').trim();
+
+  const resolveTarget = (value: string) => {
+    if (!value || value === '~') {
+      return '/';
+    }
+    if (value.startsWith('/')) {
+      return normalizePosixPath(value);
+    }
+    return normalizePosixPath(`${currentDir}/${value}`);
+  };
+
+  if (head === 'cd') {
+    if (target === '-') {
+      return previousDir ? { currentDir: previousDir, previousDir: currentDir } : null;
+    }
+
+    return {
+      currentDir: resolveTarget(target),
+      previousDir: currentDir,
+    };
+  }
+
+  if (head === 'pushd' && target) {
+    return {
+      currentDir: resolveTarget(target),
+      previousDir: currentDir,
+    };
+  }
+
+  if (head === 'popd' && previousDir) {
+    return {
+      currentDir: previousDir,
+      previousDir: currentDir,
+    };
+  }
+
+  return null;
+}
+
 function App() {
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [tabs, setTabs] = useState<ServerTab[]>([]);
@@ -238,11 +313,10 @@ function App() {
         setCurrentOutputMap(prev => ({ ...prev, [activeTab.id]: '' }));
 
         // Update current directory if the command changed it
-        const dirMatch = command.match(/^cd\s+(.+)$/);
-        if (dirMatch) {
-          const newDir = dirMatch[1];
+        const nextDirectory = resolveNextDirectory(command, activeTab.currentDir, activeTab.previousDir);
+        if (nextDirectory) {
           setTabs(prev => prev.map(t =>
-            t.id === activeTab.id ? { ...t, currentDir: newDir } : t
+            t.id === activeTab.id ? { ...t, ...nextDirectory } : t
           ));
         }
       } else if (result.error) {
@@ -270,11 +344,10 @@ function App() {
 
     appendHistoryEntry(activeTab.id, activeTab.serverId, historyEntry);
 
-    const dirMatch = command.match(/^cd\s+(.+)$/);
-    if (dirMatch) {
-      const newDir = dirMatch[1];
+    const nextDirectory = resolveNextDirectory(command, activeTab.currentDir, activeTab.previousDir);
+    if (nextDirectory) {
       setTabs(prev => prev.map(t =>
-        t.id === activeTab.id ? { ...t, currentDir: newDir } : t
+        t.id === activeTab.id ? { ...t, ...nextDirectory } : t
       ));
     }
   }, [activeTab, activeTabId, appendHistoryEntry]);
@@ -321,6 +394,7 @@ function App() {
       serverId: server.id,
       serverName: server.name,
       currentDir: '/',
+      previousDir: undefined,
     };
 
     // Create shell session for the new tab FIRST
@@ -535,6 +609,8 @@ function App() {
                   key={tab.id}
                   tabId={tab.id}
                   serverId={tab.serverId}
+                  serverName={tab.serverName}
+                  currentDir={tab.currentDir}
                   isActive={tab.id === activeTabId}
                 />
               ))}

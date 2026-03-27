@@ -2,6 +2,9 @@ use crate::crypto::{auth_file_exists, decrypt_server_config, encrypt_server_conf
 use crate::memory;
 use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, PersistentShell, ServerBanner, ServerConfig, SSHConnection, SSHConnectionManager};
 use serde::{Deserialize, Serialize};
+use ssh2::{FileStat, OpenFlags, OpenType};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::State;
 use uuid::Uuid;
@@ -104,6 +107,214 @@ pub struct ServerStatusSnapshot {
     pub disk_stdout: String,
     pub memory_stdout: String,
     pub network_stdout: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteEntry {
+    pub name: String,
+    pub path: String,
+    pub entry_type: String,
+    pub size: Option<u64>,
+    pub modified_at: Option<u64>,
+    pub permissions: Option<u32>,
+    pub is_text_editable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteDirectoryPayload {
+    pub current_path: String,
+    pub parent_path: Option<String>,
+    pub entries: Vec<RemoteEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteFileContent {
+    pub path: String,
+    pub content: String,
+    pub encoding: String,
+    pub size: u64,
+    pub is_readonly: bool,
+}
+
+const MAX_TEXT_EDIT_SIZE: u64 = 512 * 1024;
+const TEXT_SAMPLE_SIZE: usize = 4096;
+
+fn normalize_remote_path(path: &str) -> String {
+    if path.trim().is_empty() {
+        return "/".to_string();
+    }
+
+    let is_absolute = path.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            value => parts.push(value),
+        }
+    }
+
+    let joined = parts.join("/");
+    if is_absolute {
+        if joined.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", joined)
+        }
+    } else if joined.is_empty() {
+        ".".to_string()
+    } else {
+        joined
+    }
+}
+
+fn get_parent_remote_path(path: &str) -> Option<String> {
+    let normalized = normalize_remote_path(path);
+    if normalized == "/" {
+        return None;
+    }
+
+    let parent = Path::new(&normalized)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or("/");
+
+    Some(if parent.is_empty() {
+        "/".to_string()
+    } else {
+        normalize_remote_path(parent)
+    })
+}
+
+fn file_type_from_perm(perm: Option<u32>) -> String {
+    match perm.map(|value| value & 0o170000) {
+        Some(0o040000) => "directory".to_string(),
+        Some(0o120000) => "symlink".to_string(),
+        _ => "file".to_string(),
+    }
+}
+
+fn is_probably_text(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return true;
+    }
+
+    let mut suspicious = 0usize;
+    for &byte in bytes {
+        if byte == 0 {
+            return false;
+        }
+
+        let is_control = byte < 0x20 && !matches!(byte, b'\n' | b'\r' | b'\t' | 0x0c | 0x08);
+        if is_control {
+            suspicious += 1;
+        }
+    }
+
+    suspicious * 100 / bytes.len() < 5
+}
+
+fn has_text_extension(path: &Path) -> bool {
+    const TEXT_EXTENSIONS: &[&str] = &[
+        "txt", "md", "markdown", "json", "jsonl", "yaml", "yml", "toml", "ini", "conf",
+        "config", "env", "log", "csv", "tsv", "xml", "html", "htm", "css", "scss", "less",
+        "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "rs", "go", "java", "kt", "swift",
+        "c", "h", "hpp", "cpp", "cc", "sh", "bash", "zsh", "fish", "sql", "dockerfile",
+        "makefile", "gitignore", "gitattributes", "properties", "vue", "svelte",
+    ];
+
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+
+    let lower_name = name.to_ascii_lowercase();
+    if ["dockerfile", "makefile"].contains(&lower_name.as_str()) {
+        return true;
+    }
+
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|ext| TEXT_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+fn is_text_editable(path: &Path, stat: &FileStat, sample: Option<&[u8]>) -> bool {
+    if file_type_from_perm(stat.perm) != "file" {
+        return false;
+    }
+
+    if stat.size.unwrap_or(0) > MAX_TEXT_EDIT_SIZE {
+        return false;
+    }
+
+    if has_text_extension(path) {
+        return true;
+    }
+
+    sample.map(is_probably_text).unwrap_or(false)
+}
+
+fn read_sample_bytes(
+    sftp: &ssh2::Sftp,
+    path: &Path,
+    max_len: usize,
+) -> Result<Vec<u8>, String> {
+    let mut file = sftp.open(path).map_err(|e| e.to_string())?;
+    let mut sample = vec![0u8; max_len];
+    let bytes_read = file.read(&mut sample).map_err(|e| e.to_string())?;
+    sample.truncate(bytes_read);
+    Ok(sample)
+}
+
+fn canonicalize_remote_directory(sftp: &ssh2::Sftp, path: &str) -> Result<String, String> {
+    let normalized = normalize_remote_path(path);
+    let resolved = sftp
+        .realpath(Path::new(&normalized))
+        .map_err(|e| e.to_string())?;
+
+    let canonical = resolved
+        .to_str()
+        .ok_or_else(|| "Remote path contains invalid UTF-8".to_string())?;
+
+    Ok(normalize_remote_path(canonical))
+}
+
+fn remote_entry_from_parts(
+    sftp: &ssh2::Sftp,
+    path: PathBuf,
+    stat: FileStat,
+) -> Result<RemoteEntry, String> {
+    let normalized_path = normalize_remote_path(
+        path.to_str()
+            .ok_or_else(|| "Remote path contains invalid UTF-8".to_string())?,
+    );
+
+    let name = Path::new(&normalized_path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(&normalized_path)
+        .to_string();
+
+    let sample = if file_type_from_perm(stat.perm) == "file" && stat.size.unwrap_or(0) <= MAX_TEXT_EDIT_SIZE {
+        read_sample_bytes(sftp, Path::new(&normalized_path), TEXT_SAMPLE_SIZE).ok()
+    } else {
+        None
+    };
+
+    Ok(RemoteEntry {
+        name,
+        path: normalized_path,
+        entry_type: file_type_from_perm(stat.perm),
+        size: stat.size,
+        modified_at: stat.mtime,
+        permissions: stat.perm,
+        is_text_editable: is_text_editable(Path::new(&path), &stat, sample.as_deref()),
+    })
 }
 
 #[tauri::command]
@@ -876,4 +1087,183 @@ pub fn close_server_session(
     state.ssh_manager.close_session(&server_id)
         .map(|_| ())
         .ok_or("Session not found".to_string())
+}
+
+#[tauri::command]
+pub fn list_remote_directory(
+    server_id: String,
+    path: String,
+    state: State<AppState>,
+) -> Result<RemoteDirectoryPayload, String> {
+    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
+    let session_guard = session.lock().map_err(|e| e.to_string())?;
+    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+
+    let current_path = canonicalize_remote_directory(&sftp, &path)?;
+    let mut entries = Vec::new();
+
+    for (entry_path, stat) in sftp.readdir(Path::new(&current_path)).map_err(|e| e.to_string())? {
+        let Some(name) = entry_path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+
+        if matches!(name, "." | "..") {
+            continue;
+        }
+
+        entries.push(remote_entry_from_parts(&sftp, entry_path, stat)?);
+    }
+
+    entries.sort_by(|left, right| {
+        let left_rank = if left.entry_type == "directory" { 0 } else { 1 };
+        let right_rank = if right.entry_type == "directory" { 0 } else { 1 };
+        left_rank
+            .cmp(&right_rank)
+            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase()))
+    });
+
+    Ok(RemoteDirectoryPayload {
+        parent_path: get_parent_remote_path(&current_path),
+        current_path,
+        entries,
+    })
+}
+
+#[tauri::command]
+pub fn read_remote_file(
+    server_id: String,
+    path: String,
+    state: State<AppState>,
+) -> Result<RemoteFileContent, String> {
+    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
+    let session_guard = session.lock().map_err(|e| e.to_string())?;
+    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+
+    let normalized = normalize_remote_path(&path);
+    let remote_path = Path::new(&normalized);
+    let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
+
+    if file_type_from_perm(stat.perm) != "file" {
+        return Err("Only regular files can be opened".to_string());
+    }
+
+    let size = stat.size.unwrap_or(0);
+    if size > MAX_TEXT_EDIT_SIZE {
+        return Err(format!("File is too large to edit ({} bytes)", size));
+    }
+
+    let mut file = sftp.open(remote_path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+
+    if !is_text_editable(remote_path, &stat, Some(&bytes)) {
+        return Err("This file does not appear to be editable text".to_string());
+    }
+
+    let content = String::from_utf8(bytes).map_err(|_| "File is not valid UTF-8 text".to_string())?;
+
+    Ok(RemoteFileContent {
+        path: normalized,
+        content,
+        encoding: "utf-8".to_string(),
+        size,
+        is_readonly: false,
+    })
+}
+
+#[tauri::command]
+pub fn write_remote_file(
+    server_id: String,
+    path: String,
+    content: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    if content.len() as u64 > MAX_TEXT_EDIT_SIZE {
+        return Err("Edited content exceeds the allowed size limit".to_string());
+    }
+
+    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
+    let session_guard = session.lock().map_err(|e| e.to_string())?;
+    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+
+    let normalized = normalize_remote_path(&path);
+    let remote_path = Path::new(&normalized);
+    let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
+
+    if file_type_from_perm(stat.perm) != "file" {
+        return Err("Only regular files can be saved".to_string());
+    }
+
+    let mut file = sftp
+        .open_mode(
+            remote_path,
+            OpenFlags::WRITE | OpenFlags::TRUNCATE,
+            0o644,
+            OpenType::File,
+        )
+        .map_err(|e| e.to_string())?;
+
+    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+    file.flush().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn upload_remote_file(
+    server_id: String,
+    remote_dir: String,
+    local_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let local = PathBuf::from(local_path);
+    if !local.is_file() {
+        return Err("Local file not found".to_string());
+    }
+
+    let file_name = local
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "Local file name is invalid".to_string())?;
+
+    let bytes = std::fs::read(&local).map_err(|e| e.to_string())?;
+    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
+    let session_guard = session.lock().map_err(|e| e.to_string())?;
+    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+
+    let target_dir = canonicalize_remote_directory(&sftp, &remote_dir)?;
+    let target_path = if target_dir == "/" {
+        format!("/{}", file_name)
+    } else {
+        format!("{}/{}", target_dir, file_name)
+    };
+
+    let mut remote = sftp
+        .open_mode(
+            Path::new(&target_path),
+            OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE,
+            0o644,
+            OpenType::File,
+        )
+        .map_err(|e| e.to_string())?;
+
+    remote.write_all(&bytes).map_err(|e| e.to_string())?;
+    remote.flush().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn download_remote_file(
+    server_id: String,
+    remote_path: String,
+    local_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
+    let session_guard = session.lock().map_err(|e| e.to_string())?;
+    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+
+    let normalized = normalize_remote_path(&remote_path);
+    let mut remote = sftp.open(Path::new(&normalized)).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    remote.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+
+    std::fs::write(local_path, bytes).map_err(|e| e.to_string())
 }

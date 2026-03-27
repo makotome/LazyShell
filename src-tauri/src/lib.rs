@@ -43,6 +43,11 @@ pub fn run() {
             commands::shell_resize,
             commands::reconnect_shell,
             commands::close_shell_session,
+            commands::list_remote_directory,
+            commands::read_remote_file,
+            commands::write_remote_file,
+            commands::upload_remote_file,
+            commands::download_remote_file,
             ai::call_ai,
             learning::save_learning_data,
             learning::load_learning_data,
@@ -76,6 +81,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            app.handle().plugin(tauri_plugin_dialog::init())?;
             Ok(())
         })
         .run(tauri::generate_context!())

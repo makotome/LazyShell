@@ -199,6 +199,31 @@ export interface ServerTab {
   serverId: string;
   serverName: string;
   currentDir: string;
+  previousDir?: string;
+}
+
+export interface RemoteEntry {
+  name: string;
+  path: string;
+  entryType: 'file' | 'directory' | 'symlink';
+  size: number | null;
+  modifiedAt: number | null;
+  permissions: number | null;
+  isTextEditable: boolean;
+}
+
+export interface RemoteDirectoryPayload {
+  currentPath: string;
+  parentPath: string | null;
+  entries: RemoteEntry[];
+}
+
+export interface RemoteFileContent {
+  path: string;
+  content: string;
+  encoding: string;
+  size: number;
+  isReadonly: boolean;
 }
 
 export interface BuiltinCommand {

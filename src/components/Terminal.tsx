@@ -4,15 +4,18 @@ import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
+import { openFileBrowserWindow } from '../utils/remoteWindows';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
   tabId: string;
   serverId: string;
+  serverName: string;
+  currentDir: string;
   isActive: boolean;
 }
 
-export function Terminal({ tabId, serverId, isActive }: TerminalProps) {
+export function Terminal({ tabId, serverId, serverName, currentDir, isActive }: TerminalProps) {
   const BACKGROUND_RECONNECT_THRESHOLD_MS = 60_000;
   const ACTIVE_IDLE_RECONNECT_THRESHOLD_MS = 5 * 60_000;
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -468,42 +471,65 @@ export function Terminal({ tabId, serverId, isActive }: TerminalProps) {
     }
   }, [focusTerminal, sendInput]);
 
+  const handleOpenFileBrowser = useCallback(() => {
+    void openFileBrowserWindow({
+      tabId,
+      serverId,
+      serverName,
+      currentDir,
+    });
+  }, [currentDir, serverId, serverName, tabId]);
+
   return (
     <div className={`terminal-stage ${isActive ? 'active' : 'inactive'}`}>
       <div className="terminal-stage-header">
         <div className="terminal-stage-meta">
           <span className="terminal-stage-kicker">Live Shell</span>
-          <span className="terminal-stage-label">{serverId}</span>
-        </div>
-        <div className="terminal-stage-indicators" aria-hidden="true">
-          <span className="terminal-stage-dot terminal-stage-dot-live" />
-          <span className="terminal-stage-dot" />
-          <span className="terminal-stage-dot" />
-        </div>
-      </div>
-      <div
-        ref={terminalRef}
-        className={`terminal-xterm ${isActive ? 'active' : 'inactive'}`}
-        onClick={focusTerminal}
-        onContextMenu={handleContextMenu}
-      />
-      {isActive && reconnectPrompt && (
-        <div className="terminal-reconnect-overlay">
-          <div className="terminal-reconnect-card">
-            <div className="terminal-reconnect-title">终端需要重连</div>
-            <div className="terminal-reconnect-text">{reconnectPrompt.message}</div>
-            <div className="terminal-reconnect-actions">
-              <button
-                type="button"
-                className="btn btn-primary btn-small"
-                onClick={() => { void handleReconnect(); }}
-              >
-                立即重连
-              </button>
-            </div>
+          <div className="terminal-stage-copy">
+            <span className="terminal-stage-name">{serverName}</span>
+            <span className="terminal-stage-label">{serverId}</span>
           </div>
         </div>
-      )}
+        <div className="terminal-stage-actions">
+          <button
+            type="button"
+            className="terminal-stage-action-btn"
+            onClick={handleOpenFileBrowser}
+          >
+            文件浏览器
+          </button>
+          <div className="terminal-stage-indicators" aria-hidden="true">
+            <span className="terminal-stage-dot terminal-stage-dot-live" />
+            <span className="terminal-stage-dot" />
+            <span className="terminal-stage-dot" />
+          </div>
+        </div>
+      </div>
+      <div className="terminal-stage-body">
+        <div
+          ref={terminalRef}
+          className={`terminal-xterm ${isActive ? 'active' : 'inactive'}`}
+          onClick={focusTerminal}
+          onContextMenu={handleContextMenu}
+        />
+        {isActive && reconnectPrompt && (
+          <div className="terminal-reconnect-overlay">
+            <div className="terminal-reconnect-card">
+              <div className="terminal-reconnect-title">终端需要重连</div>
+              <div className="terminal-reconnect-text">{reconnectPrompt.message}</div>
+              <div className="terminal-reconnect-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-small"
+                  onClick={() => { void handleReconnect(); }}
+                >
+                  立即重连
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

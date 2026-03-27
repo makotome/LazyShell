@@ -3,9 +3,20 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "file-browser-*",
+    "file-editor-*"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-create",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-show",
+    "core:window:allow-set-title",
+    "core:webview:allow-webview-close",
+    "core:webview:allow-webview-show",
+    "dialog:default"
   ]
 }
