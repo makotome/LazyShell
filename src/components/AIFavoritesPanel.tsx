@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { CommandCard, CommandCategory } from '../types';
 
 const CATEGORY_LABELS: Record<CommandCategory, string> = {
@@ -23,7 +24,7 @@ interface AIFavoritesPanelProps {
   onExecutionEditorClose: () => void;
 }
 
-export function AIFavoritesPanel({
+export const AIFavoritesPanel = memo(function AIFavoritesPanel({
   groupedCards,
   collapsedCategories,
   editingCardId,
@@ -127,4 +128,4 @@ export function AIFavoritesPanel({
       )}
     </div>
   );
-}
+});

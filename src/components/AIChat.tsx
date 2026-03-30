@@ -45,6 +45,7 @@ interface PendingActionState {
   title: string;
   summary?: string;
   command?: string;
+  commandSurface?: 'shell' | 'chat' | 'sql';
   options?: PendingActionOption[];
   source: 'ai';
   dangerLevel: CommandCard['dangerLevel'];
@@ -66,12 +67,45 @@ const INPUT_MODE_PROMPTS: Record<AIInputMode, string> = {
   answer: '你现在处于只回答模式。不要默认执行或建议立刻执行命令，优先给分析和建议。',
 };
 
-const DRAFT_STORAGE_KEY = 'lazy-shell-ai-drafts';
+const LEGACY_DRAFT_STORAGE_KEY = 'lazy-shell-ai-drafts';
+const DRAFT_STORAGE_KEY_PREFIX = 'lazy-shell-ai-draft:';
 const PROMPT_HISTORY_STORAGE_KEY = 'lazy-shell-ai-prompts';
 
 function getOpenclawGroupLabel(command: BuiltinCommand): string {
   const match = command.description.match(/^([^｜|]+)[｜|]/);
   return match ? match[1].trim() : '其他';
+}
+
+function getDraftStorageKey(serverId: string): string {
+  return `${DRAFT_STORAGE_KEY_PREFIX}${serverId}`;
+}
+
+function summarizeChatMessage(message: ChatMessage): string | null {
+  if (message.id === 'welcome' || message.id === 'history-divider') {
+    return null;
+  }
+
+  const normalized = message.content.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const prefix = message.role === 'user' ? '用户' : 'AI';
+  if (message.command) {
+    return `${prefix}: ${normalized} -> ${message.command}`;
+  }
+
+  return `${prefix}: ${normalized}`;
+}
+
+function mergeMessagesById(messages: ChatMessage[]): ChatMessage[] {
+  const messageMap = new Map<string, ChatMessage>();
+
+  for (const message of messages) {
+    messageMap.set(message.id, message);
+  }
+
+  return Array.from(messageMap.values()).sort((left, right) => left.timestamp - right.timestamp);
 }
 
 export function AIChat({
@@ -120,6 +154,7 @@ export function AIChat({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const draftPersistTimeoutRef = useRef<number | null>(null);
 
   const {
     chatHistory,
@@ -154,7 +189,13 @@ export function AIChat({
 
   useEffect(() => {
     try {
-      const drafts = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}') as Record<string, string>;
+      const draft = localStorage.getItem(getDraftStorageKey(serverId));
+      if (draft !== null) {
+        setInput(draft);
+        return;
+      }
+
+      const drafts = JSON.parse(localStorage.getItem(LEGACY_DRAFT_STORAGE_KEY) || '{}') as Record<string, string>;
       setInput(drafts[serverId] || '');
     } catch {
       setInput('');
@@ -162,13 +203,29 @@ export function AIChat({
   }, [serverId]);
 
   useEffect(() => {
-    try {
-      const drafts = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}') as Record<string, string>;
-      drafts[serverId] = input;
-      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
-    } catch {
-      // ignore local persistence errors
+    if (draftPersistTimeoutRef.current !== null) {
+      window.clearTimeout(draftPersistTimeoutRef.current);
     }
+
+    draftPersistTimeoutRef.current = window.setTimeout(() => {
+      try {
+        const storageKey = getDraftStorageKey(serverId);
+        if (input.trim()) {
+          localStorage.setItem(storageKey, input);
+        } else {
+          localStorage.removeItem(storageKey);
+        }
+      } catch {
+        // ignore local persistence errors
+      }
+    }, 180);
+
+    return () => {
+      if (draftPersistTimeoutRef.current !== null) {
+        window.clearTimeout(draftPersistTimeoutRef.current);
+        draftPersistTimeoutRef.current = null;
+      }
+    };
   }, [input, serverId]);
 
   useEffect(() => {
@@ -192,7 +249,7 @@ export function AIChat({
     });
     setMessages(prev => {
       const withoutWelcome = prev.filter(message => message.id !== 'welcome');
-      return [...historyMessages, ...withoutWelcome];
+      return mergeMessagesById([...historyMessages, ...withoutWelcome]);
     });
     setHistoryLoaded(true);
   }, [chatHistory, historyLoaded]);
@@ -222,7 +279,7 @@ export function AIChat({
           options: entry.options,
           timestamp: entry.timestamp,
         }));
-        setMessages(prev => [...olderMessages, ...prev]);
+        setMessages(prev => mergeMessagesById([...olderMessages, ...prev]));
         requestAnimationFrame(() => {
           container.scrollTop = container.scrollHeight - prevScrollHeight;
         });
@@ -251,13 +308,42 @@ export function AIChat({
 
   const clearDraftForServer = useCallback(() => {
     try {
-      const drafts = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}') as Record<string, string>;
-      drafts[serverId] = '';
-      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+      if (draftPersistTimeoutRef.current !== null) {
+        window.clearTimeout(draftPersistTimeoutRef.current);
+        draftPersistTimeoutRef.current = null;
+      }
+      localStorage.removeItem(getDraftStorageKey(serverId));
     } catch {
       // ignore local persistence errors
     }
   }, [serverId]);
+
+  const handleConversationScroll = useCallback(() => {
+    void handleChatScroll();
+  }, [handleChatScroll]);
+
+  const enrichedContext = useMemo<TerminalContext>(() => {
+    const recentChatSummary = messages
+      .slice(-8)
+      .map(summarizeChatMessage)
+      .filter((item): item is string => Boolean(item));
+
+    return {
+      ...context,
+      memoryContext: {
+        frequentCommands: commandCards
+          .slice()
+          .sort((left, right) => right.usageCount - left.usageCount)
+          .slice(0, 8)
+          .map(card => ({
+            command: card.command,
+            description: card.description || card.naturalLanguage,
+            usageCount: card.usageCount,
+          })),
+        recentChatSummary,
+      },
+    };
+  }, [commandCards, context, messages]);
 
   const pushUserAndAiHistory = useCallback(async (userInput: string, decision: AiDecision, source: string) => {
     try {
@@ -322,7 +408,7 @@ export function AIChat({
           baseUrl: activeProvider.baseUrl,
           model: activeProvider.model,
           prompt,
-          context,
+          context: enrichedContext,
           serverId,
           inputMode,
         },
@@ -357,6 +443,7 @@ export function AIChat({
             command: option.command,
             description: option.description,
             reason: option.reason,
+            surface: option.surface,
             dangerLevel: mapOptionDangerLevel(option),
           })),
         });
@@ -369,6 +456,7 @@ export function AIChat({
           title: userInput,
           summary: decision.responseText,
           command: decision.command,
+          commandSurface: decision.commandSurface,
           source: 'ai',
           dangerLevel,
         });
@@ -395,7 +483,7 @@ export function AIChat({
     providerManager,
     pushUserAndAiHistory,
     serverId,
-    context,
+    enrichedContext,
   ]);
 
   const handleAddToFavorites = useCallback(async (option: AICommandOption, key?: string) => {
@@ -445,6 +533,12 @@ export function AIChat({
 
   const handlePendingActionExecute = useCallback(() => {
     if (!pendingAction || pendingAction.kind !== 'single' || !pendingAction.command) return;
+    if (pendingAction.commandSurface === 'sql') {
+      void navigator.clipboard.writeText(pendingAction.command).catch(err => {
+        console.error('Failed to copy SQL snippet:', err);
+      });
+      return;
+    }
     onTerminalExecute(pendingAction.command, 'ai', {
       userIntent: pendingAction.title,
       suggestedCommand: pendingAction.command,
@@ -528,6 +622,12 @@ export function AIChat({
   }, [openExecutionEditor, pendingAction]);
 
   const handlePendingOptionExecute = useCallback(async (option: PendingActionOption) => {
+    if (option.surface === 'sql') {
+      await navigator.clipboard.writeText(option.command).catch(err => {
+        console.error('Failed to copy SQL snippet:', err);
+      });
+      return;
+    }
     onTerminalExecute(option.command, 'ai', {
       userIntent: option.description,
       suggestedCommand: option.command,
@@ -805,10 +905,11 @@ export function AIChat({
                     title={pendingAction.title}
                     summary={pendingAction.summary}
                     command={pendingAction.command}
+                    commandSurface={pendingAction.commandSurface}
                     dangerLevel={pendingAction.dangerLevel}
                     options={pendingAction.options?.map(option => ({
                       ...option,
-                      isExecuted: executedOptionIndexes.has(option.command) || option.isExecuted,
+                      isExecuted: option.surface === 'sql' ? false : executedOptionIndexes.has(option.command) || option.isExecuted,
                       isSaved: addedOptionIndexes.has(option.command) || option.isSaved,
                     }))}
                     onClose={handlePendingActionClose}
@@ -851,7 +952,7 @@ export function AIChat({
                 clarificationContext={clarificationContext}
                 chatContainerRef={chatContainerRef}
                 messagesEndRef={messagesEndRef}
-                onScroll={() => void handleChatScroll()}
+                onScroll={handleConversationScroll}
               />
               <form className="chat-input-form" onSubmit={handleSubmit}>
                 <AIComposer

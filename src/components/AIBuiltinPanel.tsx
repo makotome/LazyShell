@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { BuiltinCommand } from '../types';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -41,7 +42,7 @@ function getBuiltinCardTitle(cmd: BuiltinCommand, isOpenclawPanel: boolean): str
   return cmd.examples[0]?.description || getBuiltinSectionDescription(cmd);
 }
 
-export function AIBuiltinPanel({
+export const AIBuiltinPanel = memo(function AIBuiltinPanel({
   title,
   groupedBuiltinCommands,
   builtinCommandsCount,
@@ -123,4 +124,4 @@ export function AIBuiltinPanel({
       )}
     </div>
   );
-}
+});

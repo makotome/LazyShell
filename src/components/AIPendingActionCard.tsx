@@ -5,6 +5,7 @@ export interface PendingActionOption {
   description: string;
   reason?: string;
   dangerLevel: DangerLevel;
+  surface?: 'shell' | 'chat' | 'sql';
   isExecuted?: boolean;
   isSaved?: boolean;
 }
@@ -13,6 +14,7 @@ interface AIPendingActionCardProps {
   title: string;
   summary?: string;
   command?: string;
+  commandSurface?: 'shell' | 'chat' | 'sql';
   dangerLevel?: DangerLevel;
   options?: PendingActionOption[];
   onClose: () => void;
@@ -40,6 +42,7 @@ export function AIPendingActionCard({
   title,
   summary,
   command,
+  commandSurface = 'shell',
   dangerLevel = 'green',
   options,
   onClose,
@@ -53,6 +56,7 @@ export function AIPendingActionCard({
   saveLabel = '保存到常用',
 }: AIPendingActionCardProps) {
   const isMulti = !!options?.length;
+  const singlePrimaryLabel = commandSurface === 'sql' ? '复制 SQL' : '执行';
 
   return (
     <div className={`ai-pending-card danger-${dangerLevel}`}>
@@ -62,6 +66,9 @@ export function AIPendingActionCard({
           <span className="ai-pending-title">{title}</span>
         </div>
         <div className="ai-pending-header-actions">
+          {!isMulti && commandSurface === 'sql' ? (
+            <span className="surface-badge surface-sql">SQL 片段</span>
+          ) : null}
           <span className={`danger-badge danger-${dangerLevel}`}>
             {isMulti ? `${options?.length || 0} 个候选` : DANGER_LABELS[dangerLevel]}
           </span>
@@ -79,7 +86,7 @@ export function AIPendingActionCard({
           </div>
           <div className="ai-pending-actions">
             <button type="button" className={`btn ${dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`} onClick={onExecute}>
-              执行
+              {singlePrimaryLabel}
             </button>
             <button type="button" className="btn btn-secondary btn-small btn-chip" onClick={onEdit}>
               调整
@@ -99,6 +106,9 @@ export function AIPendingActionCard({
           {options?.map((option, index) => (
             <div key={`${option.command}-${index}`} className={`ai-pending-option danger-${option.dangerLevel}`}>
               <div className="ai-pending-option-header">
+                {option.surface === 'sql' ? (
+                  <span className="surface-badge surface-sql">SQL 片段</span>
+                ) : null}
                 <span className={`danger-badge danger-${option.dangerLevel}`}>
                   {option.isExecuted ? '已执行' : DANGER_LABELS[option.dangerLevel]}
                 </span>
@@ -113,9 +123,9 @@ export function AIPendingActionCard({
                   type="button"
                   className={`btn ${option.dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`}
                   onClick={() => onOptionExecute?.(option, index)}
-                  disabled={option.isExecuted}
+                  disabled={option.isExecuted && option.surface !== 'sql'}
                 >
-                  {option.isExecuted ? '已执行' : '执行'}
+                  {option.surface === 'sql' ? '复制 SQL' : option.isExecuted ? '已执行' : '执行'}
                 </button>
                 <button type="button" className="btn btn-secondary btn-small btn-chip" onClick={() => onOptionEdit?.(option)}>
                   调整

@@ -74,6 +74,7 @@ pub struct AICommandOption {
     pub description: String,
     pub is_dangerous: bool,
     pub reason: Option<String>,
+    pub surface: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +94,7 @@ pub struct AiDecision {
     pub intent: String,
     pub response_text: String,
     pub command: Option<String>,
+    pub command_surface: Option<String>,
     pub options: Vec<AICommandOption>,
     pub risk_level: String,
     pub reasoning_summary: Option<String>,
@@ -324,13 +326,16 @@ pub async fn call_ai_orchestrated(
     .await
     .map_err(|e| e.to_string())?;
 
-    parse_ai_decision_response(
+    let decision = parse_ai_decision_response(
         &content,
+        &params.prompt,
         &default_mode,
         retrieval.retrieved_memory_ids,
         retrieval.source_labels,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    Ok(normalize_database_decision(&params.prompt, decision))
 }
 
 fn build_retrieval_context(
@@ -591,6 +596,8 @@ Rules:
 - For diagnose, prefer inspect_then_command and non-destructive inspection commands first.
 - If the request is vague, use clarification.
 - If a recommended action matches a recorded failure case, avoid reusing it unless you explain why.
+- For database query tasks, if the user is asking for SQL on an already connected server and did not explicitly ask for a full client login command, return only the SQL statement in `command`, set `commandSurface` to `sql`, and explain that it should be run after entering the database client.
+- Do not invent host, port, username, password, database-name placeholders, or connection wrappers for SQL tasks unless the user explicitly asks for a full connection command.
 - Never return markdown fences, prose before JSON, or HTML."#
         .to_string()
 }
@@ -901,6 +908,7 @@ fn is_vague_request(lower: &str) -> bool {
 
 fn parse_ai_decision_response(
     content: &str,
+    user_input: &str,
     default_mode: &str,
     retrieved_memory_ids: Vec<String>,
     source_labels: Vec<String>,
@@ -926,6 +934,7 @@ fn parse_ai_decision_response(
                                 .and_then(|v| v.as_bool())
                                 .unwrap_or(false),
                             reason: opt.get("reason").and_then(|v| v.as_str()).map(String::from),
+                            surface: opt.get("surface").and_then(|v| v.as_str()).map(String::from),
                         })
                     })
                     .collect::<Vec<_>>()
@@ -963,6 +972,10 @@ fn parse_ai_decision_response(
             intent,
             response_text,
             command,
+            command_surface: parsed
+                .get("commandSurface")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             options,
             risk_level: parsed
                 .get("riskLevel")
@@ -984,6 +997,11 @@ fn parse_ai_decision_response(
         intent: fallback.intent.clone(),
         response_text: fallback.explanation.unwrap_or_default(),
         command: fallback.command,
+        command_surface: if is_database_query_request(user_input) {
+            Some("sql".to_string())
+        } else {
+            None
+        },
         options: fallback.options.unwrap_or_default(),
         risk_level: if fallback.is_dangerous {
             "red".to_string()
@@ -1028,6 +1046,7 @@ fn parse_ai_response(content: &str) -> Result<AIResponse, AIError> {
                             .to_string(),
                         is_dangerous: opt.get("isDangerous").and_then(|v| v.as_bool()).unwrap_or(false),
                         reason: opt.get("reason").and_then(|v| v.as_str()).map(String::from),
+                        surface: opt.get("surface").and_then(|v| v.as_str()).map(String::from),
                     })
                 })
                 .collect();
@@ -1131,6 +1150,111 @@ fn extract_json_payload(content: &str) -> Option<String> {
     None
 }
 
+fn is_database_query_request(user_input: &str) -> bool {
+    let lower = user_input.to_lowercase();
+    let markers = [
+        "sql",
+        "mysql",
+        "postgres",
+        "postgresql",
+        "数据库",
+        "数据表",
+        "表",
+        "select ",
+        "insert ",
+        "update ",
+        "delete ",
+        "order by",
+        "group by",
+        "where ",
+        "创建时间",
+        "排序",
+        "字段",
+    ];
+    markers.iter().any(|marker| lower.contains(marker))
+}
+
+fn extract_sql_from_wrapped_command(command: &str) -> Option<String> {
+    let lowered = command.to_lowercase();
+    if !(lowered.contains("mysql") || lowered.contains("psql")) {
+        return None;
+    }
+
+    let patterns = ["-e \"", "-e '", "-c \"", "-c '"];
+    for pattern in patterns {
+        if let Some(start) = command.find(pattern) {
+            let quote = pattern.chars().last()?;
+            let sql_start = start + pattern.len();
+            let tail = &command[sql_start..];
+            if let Some(end) = tail.find(quote) {
+                let sql = tail[..end].trim();
+                if !sql.is_empty() {
+                    return Some(sql.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn normalize_database_command(command: &str) -> Option<String> {
+    if let Some(sql) = extract_sql_from_wrapped_command(command) {
+        return Some(sql);
+    }
+
+    let trimmed = command.trim();
+    let lower = trimmed.to_lowercase();
+    if lower.starts_with("select ")
+        || lower.starts_with("insert ")
+        || lower.starts_with("update ")
+        || lower.starts_with("delete ")
+        || lower.starts_with("show ")
+        || lower.starts_with("desc ")
+        || lower.starts_with("describe ")
+        || lower.starts_with("alter ")
+        || lower.starts_with("create ")
+    {
+        return Some(trimmed.to_string());
+    }
+
+    None
+}
+
+fn normalize_database_decision(user_input: &str, mut decision: AiDecision) -> AiDecision {
+    if !is_database_query_request(user_input) {
+        return decision;
+    }
+
+    if let Some(command) = decision.command.clone() {
+        if let Some(sql) = normalize_database_command(&command) {
+            decision.command = Some(sql);
+            decision.command_surface = Some("sql".to_string());
+            if decision.response_text.trim().is_empty() {
+                decision.response_text = "请先进入数据库客户端，再执行以下 SQL。".to_string();
+            } else if !decision.response_text.contains("数据库客户端") && !decision.response_text.contains("SQL") {
+                decision.response_text = format!("请先进入数据库客户端，再执行以下 SQL。{}", decision.response_text);
+            }
+        }
+    }
+
+    if !decision.options.is_empty() {
+        decision.options = decision
+            .options
+            .into_iter()
+            .map(|mut option| {
+                if let Some(sql) = normalize_database_command(&option.command) {
+                    option.command = sql;
+                    option.surface = Some("sql".to_string());
+                }
+                option
+            })
+            .collect();
+    }
+
+    decision
+}
+
 fn truncate_inline(value: &str, max_chars: usize) -> String {
     let compact = value.replace('\n', " ");
     let truncated: String = compact.chars().take(max_chars).collect();
@@ -1167,7 +1291,7 @@ fn is_dangerous_command(command: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_profile_preference_rules, decide_mode, parse_ai_decision_response};
+    use super::{build_profile_preference_rules, decide_mode, normalize_database_decision, parse_ai_decision_response, AiDecision};
     use crate::learning::ServerEnvironmentProfile;
 
     #[test]
@@ -1179,6 +1303,7 @@ mod tests {
     fn parses_structured_decision() {
         let parsed = parse_ai_decision_response(
             r#"{"mode":"command","intent":"single","responseText":"test","command":"ls","riskLevel":"green"}"#,
+            "查看文件",
             "command",
             vec!["m1".to_string()],
             vec!["执行经验".to_string()],
@@ -1210,5 +1335,33 @@ mod tests {
 
         let service_rules = build_profile_preference_rules("查看服务状态", &profile);
         assert!(service_rules.iter().any(|rule| rule.contains("systemctl")));
+    }
+
+    #[test]
+    fn normalizes_wrapped_mysql_command_to_sql_surface() {
+        let decision = AiDecision {
+            mode: "command".to_string(),
+            intent: "single".to_string(),
+            response_text: "按创建时间倒序查看 user 表".to_string(),
+            command: Some("mysql -h 127.0.0.1 -P 13306 -u root -p -e \"SELECT id, name, created_at FROM user ORDER BY created_at DESC;\" 数据库名".to_string()),
+            command_surface: None,
+            options: Vec::new(),
+            risk_level: "green".to_string(),
+            reasoning_summary: None,
+            retrieved_memory_ids: Vec::new(),
+            source_labels: Vec::new(),
+        };
+
+        let normalized = normalize_database_decision(
+            "按照注册时间对 user 这个表的用户进行排序，只需要 id name 和创建时间",
+            decision,
+        );
+
+        assert_eq!(
+            normalized.command.as_deref(),
+            Some("SELECT id, name, created_at FROM user ORDER BY created_at DESC;")
+        );
+        assert_eq!(normalized.command_surface.as_deref(), Some("sql"));
+        assert!(normalized.response_text.contains("数据库客户端"));
     }
 }

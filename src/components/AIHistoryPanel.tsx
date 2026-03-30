@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { CommandHistory } from '../types';
 
 interface AIHistoryPanelProps {
@@ -25,7 +26,7 @@ interface AIHistoryPanelProps {
   onExecutionEditorClose: () => void;
 }
 
-export function AIHistoryPanel({
+export const AIHistoryPanel = memo(function AIHistoryPanel({
   entries,
   historyQuery,
   historySourceFilter,
@@ -154,4 +155,4 @@ export function AIHistoryPanel({
       )}
     </div>
   );
-}
+});

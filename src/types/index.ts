@@ -17,6 +17,7 @@ export interface AICommandOption {
   description: string;
   isDangerous: boolean;
   reason?: string;
+  surface?: 'shell' | 'chat' | 'sql';
 }
 
 export interface AIResponse {
@@ -37,6 +38,7 @@ export interface AiDecision {
   intent: 'single' | 'multiple' | 'clarification';
   responseText: string;
   command?: string;
+  commandSurface?: 'shell' | 'chat' | 'sql';
   options: AICommandOption[];
   riskLevel: DangerLevel;
   reasoningSummary?: string;

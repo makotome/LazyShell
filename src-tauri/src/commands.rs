@@ -389,6 +389,47 @@ pub fn unlock_with_password(
     }
 }
 
+fn with_server_sftp<T, F>(
+    state: &AppState,
+    server_id: &str,
+    mut operation: F,
+) -> Result<T, String>
+where
+    F: FnMut(&ssh2::Sftp) -> Result<T, String>,
+{
+    let mut last_error: Option<String> = None;
+
+    for attempt in 0..2 {
+        let session = match state.ssh_manager.get_session(server_id) {
+            Ok(session) => session,
+            Err(err) => {
+                last_error = Some(err.to_string());
+                if attempt == 0 {
+                    let _ = state.ssh_manager.close_session(server_id);
+                    continue;
+                }
+                break;
+            }
+        };
+
+        let result = (|| {
+            let session_guard = session.lock().map_err(|e| e.to_string())?;
+            let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+            operation(&sftp)
+        })();
+
+        match result {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                last_error = Some(err);
+                let _ = state.ssh_manager.close_session(server_id);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "Failed to open SFTP session".to_string()))
+}
+
 #[tauri::command]
 pub fn add_server(
     request: AddServerRequest,
@@ -925,7 +966,6 @@ pub fn shell_input(
     data: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    eprintln!("[DEBUG shell_input] tab_id={}, data={:?}", tab_id, data);
     state.ssh_manager.write_to_persistent_shell(&tab_id, &data)
         .map_err(|e| e.to_string())
 }
@@ -1111,37 +1151,35 @@ pub fn list_remote_directory(
     path: String,
     state: State<AppState>,
 ) -> Result<RemoteDirectoryPayload, String> {
-    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
-    let session_guard = session.lock().map_err(|e| e.to_string())?;
-    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let current_path = canonicalize_remote_directory(sftp, &path)?;
+        let mut entries = Vec::new();
 
-    let current_path = canonicalize_remote_directory(&sftp, &path)?;
-    let mut entries = Vec::new();
+        for (entry_path, stat) in sftp.readdir(Path::new(&current_path)).map_err(|e| e.to_string())? {
+            let Some(name) = entry_path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
 
-    for (entry_path, stat) in sftp.readdir(Path::new(&current_path)).map_err(|e| e.to_string())? {
-        let Some(name) = entry_path.file_name().and_then(|value| value.to_str()) else {
-            continue;
-        };
+            if matches!(name, "." | "..") {
+                continue;
+            }
 
-        if matches!(name, "." | "..") {
-            continue;
+            entries.push(remote_entry_from_parts(sftp, entry_path, stat)?);
         }
 
-        entries.push(remote_entry_from_parts(&sftp, entry_path, stat)?);
-    }
+        entries.sort_by(|left, right| {
+            let left_rank = if left.entry_type == "directory" { 0 } else { 1 };
+            let right_rank = if right.entry_type == "directory" { 0 } else { 1 };
+            left_rank
+                .cmp(&right_rank)
+                .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase()))
+        });
 
-    entries.sort_by(|left, right| {
-        let left_rank = if left.entry_type == "directory" { 0 } else { 1 };
-        let right_rank = if right.entry_type == "directory" { 0 } else { 1 };
-        left_rank
-            .cmp(&right_rank)
-            .then_with(|| left.name.to_ascii_lowercase().cmp(&right.name.to_ascii_lowercase()))
-    });
-
-    Ok(RemoteDirectoryPayload {
-        parent_path: get_parent_remote_path(&current_path),
-        current_path,
-        entries,
+        Ok(RemoteDirectoryPayload {
+            parent_path: get_parent_remote_path(&current_path),
+            current_path,
+            entries,
+        })
     })
 }
 
@@ -1151,39 +1189,37 @@ pub fn read_remote_file(
     path: String,
     state: State<AppState>,
 ) -> Result<RemoteFileContent, String> {
-    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
-    let session_guard = session.lock().map_err(|e| e.to_string())?;
-    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let normalized = normalize_remote_path(&path);
+        let remote_path = Path::new(&normalized);
+        let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
 
-    let normalized = normalize_remote_path(&path);
-    let remote_path = Path::new(&normalized);
-    let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
+        if file_type_from_perm(stat.perm) != "file" {
+            return Err("Only regular files can be opened".to_string());
+        }
 
-    if file_type_from_perm(stat.perm) != "file" {
-        return Err("Only regular files can be opened".to_string());
-    }
+        let size = stat.size.unwrap_or(0);
+        if size > MAX_TEXT_EDIT_SIZE {
+            return Err(format!("File is too large to edit ({} bytes)", size));
+        }
 
-    let size = stat.size.unwrap_or(0);
-    if size > MAX_TEXT_EDIT_SIZE {
-        return Err(format!("File is too large to edit ({} bytes)", size));
-    }
+        let mut file = sftp.open(remote_path).map_err(|e| e.to_string())?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
 
-    let mut file = sftp.open(remote_path).map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        if !is_text_editable(remote_path, &stat, Some(&bytes)) {
+            return Err("This file does not appear to be editable text".to_string());
+        }
 
-    if !is_text_editable(remote_path, &stat, Some(&bytes)) {
-        return Err("This file does not appear to be editable text".to_string());
-    }
+        let content = String::from_utf8(bytes).map_err(|_| "File is not valid UTF-8 text".to_string())?;
 
-    let content = String::from_utf8(bytes).map_err(|_| "File is not valid UTF-8 text".to_string())?;
-
-    Ok(RemoteFileContent {
-        path: normalized,
-        content,
-        encoding: "utf-8".to_string(),
-        size,
-        is_readonly: false,
+        Ok(RemoteFileContent {
+            path: normalized,
+            content,
+            encoding: "utf-8".to_string(),
+            size,
+            is_readonly: false,
+        })
     })
 }
 
@@ -1198,29 +1234,27 @@ pub fn write_remote_file(
         return Err("Edited content exceeds the allowed size limit".to_string());
     }
 
-    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
-    let session_guard = session.lock().map_err(|e| e.to_string())?;
-    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let normalized = normalize_remote_path(&path);
+        let remote_path = Path::new(&normalized);
+        let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
 
-    let normalized = normalize_remote_path(&path);
-    let remote_path = Path::new(&normalized);
-    let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
+        if file_type_from_perm(stat.perm) != "file" {
+            return Err("Only regular files can be saved".to_string());
+        }
 
-    if file_type_from_perm(stat.perm) != "file" {
-        return Err("Only regular files can be saved".to_string());
-    }
+        let mut file = sftp
+            .open_mode(
+                remote_path,
+                OpenFlags::WRITE | OpenFlags::TRUNCATE,
+                0o644,
+                OpenType::File,
+            )
+            .map_err(|e| e.to_string())?;
 
-    let mut file = sftp
-        .open_mode(
-            remote_path,
-            OpenFlags::WRITE | OpenFlags::TRUNCATE,
-            0o644,
-            OpenType::File,
-        )
-        .map_err(|e| e.to_string())?;
-
-    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
-    file.flush().map_err(|e| e.to_string())
+        file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        file.flush().map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -1241,28 +1275,26 @@ pub fn upload_remote_file(
         .ok_or_else(|| "Local file name is invalid".to_string())?;
 
     let bytes = std::fs::read(&local).map_err(|e| e.to_string())?;
-    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
-    let session_guard = session.lock().map_err(|e| e.to_string())?;
-    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let target_dir = canonicalize_remote_directory(sftp, &remote_dir)?;
+        let target_path = if target_dir == "/" {
+            format!("/{}", file_name)
+        } else {
+            format!("{}/{}", target_dir, file_name)
+        };
 
-    let target_dir = canonicalize_remote_directory(&sftp, &remote_dir)?;
-    let target_path = if target_dir == "/" {
-        format!("/{}", file_name)
-    } else {
-        format!("{}/{}", target_dir, file_name)
-    };
+        let mut remote = sftp
+            .open_mode(
+                Path::new(&target_path),
+                OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE,
+                0o644,
+                OpenType::File,
+            )
+            .map_err(|e| e.to_string())?;
 
-    let mut remote = sftp
-        .open_mode(
-            Path::new(&target_path),
-            OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE,
-            0o644,
-            OpenType::File,
-        )
-        .map_err(|e| e.to_string())?;
-
-    remote.write_all(&bytes).map_err(|e| e.to_string())?;
-    remote.flush().map_err(|e| e.to_string())
+        remote.write_all(&bytes).map_err(|e| e.to_string())?;
+        remote.flush().map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -1272,14 +1304,12 @@ pub fn download_remote_file(
     local_path: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let session = state.ssh_manager.get_session(&server_id).map_err(|e| e.to_string())?;
-    let session_guard = session.lock().map_err(|e| e.to_string())?;
-    let sftp = session_guard.sftp().map_err(|e| e.to_string())?;
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let normalized = normalize_remote_path(&remote_path);
+        let mut remote = sftp.open(Path::new(&normalized)).map_err(|e| e.to_string())?;
+        let mut bytes = Vec::new();
+        remote.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
 
-    let normalized = normalize_remote_path(&remote_path);
-    let mut remote = sftp.open(Path::new(&normalized)).map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    remote.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-
-    std::fs::write(local_path, bytes).map_err(|e| e.to_string())
+        std::fs::write(&local_path, bytes).map_err(|e| e.to_string())
+    })
 }

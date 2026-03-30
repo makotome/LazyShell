@@ -852,6 +852,24 @@ body {
   flex-shrink: 0;
 }
 
+.surface-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.surface-badge.surface-sql {
+  color: #9ee7ff;
+  background: rgba(49, 196, 255, 0.12);
+  border-color: rgba(49, 196, 255, 0.24);
+}
+
 .ai-pending-heading {
   display: flex;
   flex-direction: column;
@@ -947,6 +965,7 @@ body {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 
 .ai-pending-option-title {
@@ -2302,19 +2321,74 @@ body {
 }
 
 /* Add Server Form */
-.add-server-form {
-  margin: 0 8px 8px;
-  padding: 8px;
-  border: 1px solid rgba(49, 196, 255, 0.12);
-  border-radius: 7px;
+.server-form-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
   background:
-    radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
-    rgba(7, 16, 25, 0.88);
+    radial-gradient(circle at top, rgba(49, 196, 255, 0.08), transparent 30%),
+    rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.server-form-modal {
+  width: min(640px, 100%);
+  max-height: min(86vh, 820px);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  box-shadow: none;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(49, 196, 255, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
+    rgba(8, 15, 22, 0.96);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+}
+
+.server-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.server-form-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.add-server-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.server-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.server-form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(4, 10, 16, 0.42);
 }
 
 .form-group {
@@ -2355,6 +2429,7 @@ body {
 .form-group textarea {
   font-family: var(--font-mono);
   resize: vertical;
+  min-height: 120px;
 }
 
 .form-row {
@@ -4464,6 +4539,19 @@ body {
 
   .settings-modal {
     width: min(94vw, 520px);
+  }
+
+  .server-form-overlay {
+    padding: 12px;
+  }
+
+  .server-form-modal {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+  }
+
+  .server-form-footer {
+    flex-wrap: wrap;
   }
 }
 

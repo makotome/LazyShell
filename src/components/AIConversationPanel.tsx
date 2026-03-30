@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { memo, type RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import type { ChatMessage } from '../types';
@@ -37,7 +37,7 @@ function parseLegacySource(content: string): { content: string; sourceLabel?: st
   };
 }
 
-export function AIConversationPanel({
+export const AIConversationPanel = memo(function AIConversationPanel({
   messages,
   isLoading,
   loadingMoreHistory,
@@ -127,4 +127,4 @@ export function AIConversationPanel({
       <div ref={messagesEndRef} />
     </div>
   );
-}
+});

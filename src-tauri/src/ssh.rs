@@ -297,15 +297,12 @@ impl SSHConnection {
 
     /// Write data to PTY input
     pub fn write_pty(&mut self, data: &str) -> Result<(), SSHError> {
-        eprintln!("[DEBUG] write_pty called with {} bytes: {:?}", data.len(), data.as_bytes());
         if let Some(ref mut channel) = self.interactive_channel {
             channel.write(data.as_bytes())
                 .map_err(|e: std::io::Error| SSHError::IoError(e.to_string()))?;
             // Don't call flush in non-blocking mode - it can cause "would block" errors
-            eprintln!("[DEBUG] write_pty completed successfully");
             Ok(())
         } else {
-            eprintln!("[DEBUG] write_pty failed: interactive_channel is None");
             Err(SSHError::NotConnected)
         }
     }
@@ -314,16 +311,8 @@ impl SSHConnection {
     pub fn read_pty(&mut self, buf: &mut [u8]) -> Result<usize, SSHError> {
         if let Some(ref mut channel) = self.interactive_channel {
             match channel.read(buf) {
-                Ok(n) => {
-                    if n > 0 {
-                        eprintln!("[DEBUG] read_pty returned {} bytes: {:?}", n, &buf[..n]);
-                    }
-                    Ok(n)
-                }
-                Err(e) => {
-                    eprintln!("[DEBUG] read_pty error: {}", e);
-                    Err(SSHError::IoError(e.to_string()))
-                }
+                Ok(n) => Ok(n),
+                Err(e) => Err(SSHError::IoError(e.to_string())),
             }
         } else {
             Ok(0)

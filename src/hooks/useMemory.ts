@@ -18,12 +18,30 @@ interface CommandCardFile {
   version: string;
 }
 
+function mergeChatHistoryEntriesById(entries: ChatHistoryEntry[]): ChatHistoryEntry[] {
+  const entryMap = new Map<string, ChatHistoryEntry>();
+
+  for (const entry of entries) {
+    entryMap.set(entry.id, entry);
+  }
+
+  return Array.from(entryMap.values()).sort((left, right) => left.timestamp - right.timestamp);
+}
+
 export function useMemory({ serverId }: UseMemoryOptions) {
   const [chatHistory, setChatHistory] = useState<ChatHistoryEntry[]>([]);
   const [commandCards, setCommandCards] = useState<CommandCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
+
+  useEffect(() => {
+    setChatHistory([]);
+    setCommandCards([]);
+    setHasMoreHistory(true);
+    setError(null);
+    setIsLoading(true);
+  }, [serverId]);
 
   // Load chat history
   const loadChatHistory = useCallback(async (offset = 0, limit = 50) => {
@@ -33,7 +51,11 @@ export function useMemory({ serverId }: UseMemoryOptions) {
         offset,
         limit,
       });
-      setChatHistory(prev => offset === 0 ? result.entries : [...result.entries, ...prev]);
+      setChatHistory(prev => (
+        offset === 0
+          ? mergeChatHistoryEntriesById(result.entries)
+          : mergeChatHistoryEntriesById([...result.entries, ...prev])
+      ));
       setHasMoreHistory(result.entries.length >= limit);
       return result;
     } catch (err) {
@@ -53,7 +75,7 @@ export function useMemory({ serverId }: UseMemoryOptions) {
 
     try {
       await invoke('append_chat_entry', { serverId, entry: newEntry });
-      setChatHistory(prev => [...prev, newEntry]);
+      setChatHistory(prev => mergeChatHistoryEntriesById([...prev, newEntry]));
       return newEntry;
     } catch (err) {
       console.error('Failed to append chat entry:', err);
@@ -150,19 +172,41 @@ export function useMemory({ serverId }: UseMemoryOptions) {
 
   // Initial load
   useEffect(() => {
+    let cancelled = false;
+
     const load = async () => {
-      setIsLoading(true);
-      setError(null);
       try {
-        await Promise.all([loadChatHistory(0, 100), loadCommandCards()]);
+        const [historyResult, cardsResult] = await Promise.all([
+          invoke<ChatHistoryFile>('load_chat_history', {
+            serverId,
+            offset: 0,
+            limit: 100,
+          }),
+          invoke<CommandCardFile>('load_command_cards', { serverId }),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setChatHistory(mergeChatHistoryEntriesById(historyResult.entries));
+        setHasMoreHistory(historyResult.entries.length >= 100);
+        setCommandCards(cardsResult.cards);
       } catch {
         // Errors handled in individual functions
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
-    load();
-  }, [serverId, loadChatHistory, loadCommandCards]);
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [serverId]);
 
   return {
     chatHistory,

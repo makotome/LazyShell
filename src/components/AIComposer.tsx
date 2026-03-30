@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from 'react';
+import { memo, type KeyboardEvent } from 'react';
 import { AIIntentTabs, type AIInputMode } from './AIIntentTabs';
 
 interface AIComposerProps {
@@ -12,7 +12,7 @@ interface AIComposerProps {
   onInputModeChange: (mode: AIInputMode) => void;
 }
 
-export function AIComposer({
+export const AIComposer = memo(function AIComposer({
   value,
   onChange,
   onSubmit,
@@ -60,4 +60,4 @@ export function AIComposer({
       </button>
     </div>
   );
-}
+});
