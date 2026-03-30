@@ -219,6 +219,19 @@ function App() {
     }
   }, [fetchServers]);
 
+  const handleForgotPasswordReset = useCallback(() => {
+    providerManager.clearProviders();
+    setServers([]);
+    setTabs([]);
+    setActiveTabId(null);
+    setCommandHistoryMap({});
+    setCurrentOutputMap({});
+    setShellSessions({});
+    setPendingAiExecutions({});
+    recentHistoryWriteRef.current = {};
+    shellSessionsRef.current = {};
+  }, [providerManager]);
+
   const appendHistoryEntry = useCallback((tabId: string, serverId: string, entry: CommandHistory) => {
     const recent = recentHistoryWriteRef.current[tabId];
     const isNearDuplicate =
@@ -566,7 +579,7 @@ function App() {
   }, []);
 
   if (isLocked) {
-    return <UnlockScreen onUnlock={handleUnlock} />;
+    return <UnlockScreen onUnlock={handleUnlock} onReset={handleForgotPasswordReset} />;
   }
 
   return (

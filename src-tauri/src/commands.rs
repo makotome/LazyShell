@@ -1,4 +1,4 @@
-use crate::crypto::{auth_file_exists, decrypt_server_config, encrypt_server_config, verify_password, setup_password};
+use crate::crypto::{auth_file_exists, decrypt_server_config, encrypt_server_config, get_auth_file_path, verify_password, setup_password};
 use crate::learning;
 use crate::memory;
 use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, PersistentShell, ServerBanner, ServerConfig, SSHConnection, SSHConnectionManager};
@@ -33,6 +33,13 @@ fn get_servers_file_path() -> Result<std::path::PathBuf, String> {
     let app_dir = data_dir.join("LazyShell");
     std::fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
     Ok(app_dir.join("servers.enc"))
+}
+
+fn remove_file_if_exists(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -387,6 +394,63 @@ pub fn unlock_with_password(
             Err(format!("Failed to verify password: {}", e))
         }
     }
+}
+
+#[tauri::command]
+pub fn reset_local_data_for_forgot_password(
+    state: State<AppState>,
+) -> Result<(), String> {
+    remove_file_if_exists(&get_auth_file_path()?)?;
+    remove_file_if_exists(&get_servers_file_path()?)?;
+    remove_file_if_exists(&get_provider_config_path()?)?;
+
+    let memory_dir = memory::get_memory_dir()?;
+    if memory_dir.exists() {
+        for entry in std::fs::read_dir(&memory_dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().and_then(|value| value.to_str()).unwrap_or("");
+                if file_name.ends_with("_chats.json") {
+                    remove_file_if_exists(&path)?;
+                }
+            }
+        }
+    }
+
+    {
+        let mut mp = state.master_password.lock().map_err(|e| e.to_string())?;
+        *mp = None;
+    }
+    {
+        let mut unlocked = state.is_unlocked.lock().map_err(|e| e.to_string())?;
+        *unlocked = false;
+    }
+    {
+        let mut encrypted_servers = state.encrypted_servers.lock().map_err(|e| e.to_string())?;
+        encrypted_servers.clear();
+    }
+
+    let server_ids = state
+        .ssh_manager
+        .list_connections()
+        .into_iter()
+        .map(|config| config.id)
+        .collect::<Vec<_>>();
+
+    for server_id in &server_ids {
+        let _ = state.ssh_manager.close_session(server_id);
+        let _ = state.ssh_manager.remove_interactive_connection(server_id);
+        let _ = state.ssh_manager.remove_connection(server_id);
+    }
+
+    let shell_ids = state.ssh_manager.list_persistent_shells();
+    for shell_id in &shell_ids {
+        let _ = state.ssh_manager.close_persistent_shell(shell_id);
+        let _ = state.ssh_manager.remove_persistent_shell(shell_id);
+    }
+
+    Ok(())
 }
 
 fn with_server_sftp<T, F>(

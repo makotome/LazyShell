@@ -189,3 +189,64 @@
   border-radius: 8px;
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
 }
+
+.unlock-reset-button,
+.unlock-reset-danger,
+.unlock-reset-cancel {
+  border: none;
+  border-radius: 7px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.unlock-reset-button {
+  margin-top: 8px;
+  background: rgba(239, 68, 68, 0.16);
+  color: #fda4a4;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.unlock-reset-confirm {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.22);
+}
+
+.unlock-reset-confirm p {
+  margin-bottom: 10px;
+  color: #fca5a5;
+}
+
+.unlock-reset-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.unlock-reset-danger {
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: white;
+}
+
+.unlock-reset-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d7e3ee;
+}
+
+.unlock-reset-button:hover:not(:disabled),
+.unlock-reset-danger:hover:not(:disabled),
+.unlock-reset-cancel:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.unlock-reset-button:disabled,
+.unlock-reset-danger:disabled,
+.unlock-reset-cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

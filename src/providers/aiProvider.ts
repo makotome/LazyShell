@@ -122,4 +122,9 @@ export class AIProviderManager {
       isActive: id === this.activeProviderId,
     }));
   }
+
+  clearProviders(): void {
+    this.providers.clear();
+    this.activeProviderId = null;
+  }
 }

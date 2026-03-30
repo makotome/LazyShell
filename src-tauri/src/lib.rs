@@ -18,6 +18,7 @@ pub fn run() {
             commands::has_master_password,
             commands::setup_master_password,
             commands::unlock_with_password,
+            commands::reset_local_data_for_forgot_password,
             commands::add_server,
             commands::update_server,
             commands::remove_server,

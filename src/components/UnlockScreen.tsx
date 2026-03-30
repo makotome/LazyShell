@@ -4,14 +4,16 @@ import './UnlockScreen.css';
 
 interface UnlockScreenProps {
   onUnlock: () => void;
+  onReset: () => void;
 }
 
-export function UnlockScreen({ onUnlock }: UnlockScreenProps) {
+export function UnlockScreen({ onUnlock, onReset }: UnlockScreenProps) {
   const [isSetupMode, setIsSetupMode] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isConfirmingReset, setIsConfirmingReset] = useState(false);
 
   // Check if master password exists on mount
   useEffect(() => {
@@ -60,6 +62,24 @@ export function UnlockScreen({ onUnlock }: UnlockScreenProps) {
       setIsLoading(false);
     }
   }, [isSetupMode, password, confirmPassword, onUnlock]);
+
+  const handleResetConfirm = useCallback(async () => {
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await invoke('reset_local_data_for_forgot_password');
+      setPassword('');
+      setConfirmPassword('');
+      setIsConfirmingReset(false);
+      setIsSetupMode(true);
+      onReset();
+    } catch (err) {
+      setError(`重置失败: ${err}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [onReset]);
 
   return (
     <div className="unlock-screen">
@@ -116,8 +136,39 @@ export function UnlockScreen({ onUnlock }: UnlockScreenProps) {
 
         {!isSetupMode && (
           <div className="unlock-hint">
-            <p>忘记密码？删除 <code>auth.bin</code> 文件可重置</p>
-            <p className="hint-path">数据位置: ~/.local/share/LazyShell/auth.bin</p>
+            <p>忘记密码后，可以清空本地主密码、服务器记录、聊天记录和 AI Provider 配置。</p>
+            {!isConfirmingReset ? (
+              <button
+                type="button"
+                className="unlock-reset-button"
+                onClick={() => setIsConfirmingReset(true)}
+                disabled={isLoading}
+              >
+                忘记密码并清空本地数据
+              </button>
+            ) : (
+              <div className="unlock-reset-confirm">
+                <p>此操作会删除主密码、服务器记录、聊天记录和 AI Provider 配置，且不可恢复。</p>
+                <div className="unlock-reset-actions">
+                  <button
+                    type="button"
+                    className="unlock-reset-danger"
+                    onClick={() => void handleResetConfirm()}
+                    disabled={isLoading}
+                  >
+                    确认删除
+                  </button>
+                  <button
+                    type="button"
+                    className="unlock-reset-cancel"
+                    onClick={() => setIsConfirmingReset(false)}
+                    disabled={isLoading}
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
