@@ -17,6 +17,7 @@
     "core:window:allow-set-title",
     "core:webview:allow-webview-close",
     "core:webview:allow-webview-show",
-    "dialog:default"
+    "dialog:default",
+    "clipboard-manager:allow-write-text"
   ]
 }

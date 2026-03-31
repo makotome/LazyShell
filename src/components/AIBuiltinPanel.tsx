@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import type { BuiltinCommand } from '../types';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -58,9 +58,24 @@ export const AIBuiltinPanel = memo(function AIBuiltinPanel({
   onExecutionEditorClose,
 }: AIBuiltinPanelProps) {
   const isOpenclawPanel = title === 'OPENCLAW';
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!executionEditor) {
+      return;
+    }
+
+    panelRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    editorTextareaRef.current?.focus();
+    editorTextareaRef.current?.setSelectionRange(
+      executionEditor.command.length,
+      executionEditor.command.length,
+    );
+  }, [executionEditor]);
 
   return (
-    <div className="commands-panel">
+    <div className="commands-panel" ref={panelRef}>
       <div className="panel-header">{title} ({builtinCommandsCount})</div>
       {executionEditor && (
         <div className="command-editor-bar">
@@ -68,7 +83,13 @@ export const AIBuiltinPanel = memo(function AIBuiltinPanel({
             <span className="command-editor-title">调整命令后执行</span>
             <span className="command-editor-subtitle">{executionEditor.title}</span>
           </div>
-          <textarea className="command-editor-textarea" value={executionEditor.command} onChange={(e) => onExecutionEditorCommandChange(e.target.value)} rows={3} />
+          <textarea
+            ref={editorTextareaRef}
+            className="command-editor-textarea"
+            value={executionEditor.command}
+            onChange={(e) => onExecutionEditorCommandChange(e.target.value)}
+            rows={3}
+          />
           <div className="card-actions">
             <button className="btn btn-primary btn-small" onClick={onExecutionEditorRun} disabled={!executionEditor.command.trim()}>
               执行调整后的命令

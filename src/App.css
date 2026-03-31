@@ -3561,6 +3561,15 @@ body {
   background: var(--bg-tertiary);
 }
 
+.context-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.context-menu button:disabled:hover {
+  background: transparent;
+}
+
 /* PTY Terminal */
 .pty-terminal {
   display: flex;
@@ -4269,6 +4278,25 @@ body {
 .editor-window-status {
   font-size: 12px;
   color: #98a2ae;
+}
+
+.remote-file-context-menu {
+  min-width: 160px;
+}
+
+.remote-file-input-modal {
+  width: min(92vw, 420px);
+}
+
+.remote-file-input-modal .card-edit-input {
+  margin-top: 4px;
+}
+
+.remote-file-delete-message {
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .editor-window-status.dirty {

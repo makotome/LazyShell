@@ -292,6 +292,55 @@ fn canonicalize_remote_directory(sftp: &ssh2::Sftp, path: &str) -> Result<String
     Ok(normalize_remote_path(canonical))
 }
 
+fn validate_remote_file_name(file_name: &str) -> Result<String, String> {
+    let trimmed_name = file_name.trim();
+    if trimmed_name.is_empty() {
+        return Err("File name cannot be empty".to_string());
+    }
+
+    if trimmed_name.contains('/') || trimmed_name.contains('\0') {
+        return Err("File name contains invalid characters".to_string());
+    }
+
+    let normalized_name = normalize_remote_path(trimmed_name);
+    if normalized_name.starts_with('/') || normalized_name == "." || normalized_name == ".." {
+        return Err("File name is invalid".to_string());
+    }
+
+    Ok(normalized_name)
+}
+
+fn build_remote_child_path(parent_dir: &str, child_name: &str) -> String {
+    if parent_dir == "/" {
+        format!("/{}", child_name)
+    } else {
+        format!("{}/{}", parent_dir, child_name)
+    }
+}
+
+fn remove_remote_path_recursive(sftp: &ssh2::Sftp, path: &Path) -> Result<(), String> {
+    let stat = sftp.stat(path).map_err(|e| e.to_string())?;
+    let entry_type = file_type_from_perm(stat.perm);
+
+    if entry_type == "directory" {
+        for (child_path, _) in sftp.readdir(path).map_err(|e| e.to_string())? {
+            let Some(name) = child_path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+
+            if matches!(name, "." | "..") {
+                continue;
+            }
+
+            remove_remote_path_recursive(sftp, &child_path)?;
+        }
+
+        sftp.rmdir(path).map_err(|e| e.to_string())
+    } else {
+        sftp.unlink(path).map_err(|e| e.to_string())
+    }
+}
+
 fn remote_entry_from_parts(
     sftp: &ssh2::Sftp,
     path: PathBuf,
@@ -1318,6 +1367,166 @@ pub fn write_remote_file(
 
         file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
         file.flush().map_err(|e| e.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn create_remote_text_file(
+    server_id: String,
+    parent_dir: String,
+    file_name: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let normalized_name = validate_remote_file_name(&file_name)?;
+
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let target_dir = canonicalize_remote_directory(sftp, &parent_dir)?;
+        let target_path = build_remote_child_path(&target_dir, &normalized_name);
+
+        let remote_path = Path::new(&target_path);
+        if sftp.stat(remote_path).is_ok() {
+            return Err("A file or directory with the same name already exists".to_string());
+        }
+
+        let mut remote = sftp
+            .open_mode(
+                remote_path,
+                OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE,
+                0o644,
+                OpenType::File,
+            )
+            .map_err(|e| e.to_string())?;
+
+        remote.flush().map_err(|e| e.to_string())?;
+        Ok(target_path)
+    })
+}
+
+#[tauri::command]
+pub fn create_remote_directory(
+    server_id: String,
+    parent_dir: String,
+    directory_name: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let normalized_name = validate_remote_file_name(&directory_name)?;
+
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let target_dir = canonicalize_remote_directory(sftp, &parent_dir)?;
+        let target_path = build_remote_child_path(&target_dir, &normalized_name);
+        let remote_path = Path::new(&target_path);
+
+        if sftp.stat(remote_path).is_ok() {
+            return Err("A file or directory with the same name already exists".to_string());
+        }
+
+        sftp.mkdir(remote_path, 0o755).map_err(|e| e.to_string())?;
+        Ok(target_path)
+    })
+}
+
+#[tauri::command]
+pub fn copy_remote_file(
+    server_id: String,
+    source_path: String,
+    target_name: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let normalized_name = validate_remote_file_name(&target_name)?;
+
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let normalized_source_path = normalize_remote_path(&source_path);
+        let source_remote_path = Path::new(&normalized_source_path);
+        let stat = sftp.stat(source_remote_path).map_err(|e| e.to_string())?;
+
+        if file_type_from_perm(stat.perm) != "file" {
+            return Err("Only regular files can be copied".to_string());
+        }
+
+        let parent_dir = get_parent_remote_path(&normalized_source_path)
+            .ok_or_else(|| "Failed to resolve parent directory".to_string())?;
+        let canonical_parent = canonicalize_remote_directory(sftp, &parent_dir)?;
+        let target_path = build_remote_child_path(&canonical_parent, &normalized_name);
+        let target_remote_path = Path::new(&target_path);
+
+        if target_path == normalized_source_path {
+            return Err("Target file name must be different from the source file".to_string());
+        }
+
+        if sftp.stat(target_remote_path).is_ok() {
+            return Err("A file or directory with the same name already exists".to_string());
+        }
+
+        let mut source_file = sftp.open(source_remote_path).map_err(|e| e.to_string())?;
+        let mut bytes = Vec::new();
+        source_file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+
+        let mut target_file = sftp
+            .open_mode(
+                target_remote_path,
+                OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE,
+                stat.perm.unwrap_or(0o644) as i32,
+                OpenType::File,
+            )
+            .map_err(|e| e.to_string())?;
+
+        target_file.write_all(&bytes).map_err(|e| e.to_string())?;
+        target_file.flush().map_err(|e| e.to_string())?;
+
+        Ok(target_path)
+    })
+}
+
+#[tauri::command]
+pub fn rename_remote_entry(
+    server_id: String,
+    path: String,
+    new_name: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let normalized_name = validate_remote_file_name(&new_name)?;
+
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let normalized_path = normalize_remote_path(&path);
+        if normalized_path == "/" {
+            return Err("Root directory cannot be renamed".to_string());
+        }
+
+        let source_path = Path::new(&normalized_path);
+        sftp.stat(source_path).map_err(|e| e.to_string())?;
+
+        let parent_dir = get_parent_remote_path(&normalized_path)
+            .ok_or_else(|| "Failed to resolve parent directory".to_string())?;
+        let canonical_parent = canonicalize_remote_directory(sftp, &parent_dir)?;
+        let target_path = build_remote_child_path(&canonical_parent, &normalized_name);
+
+        if target_path == normalized_path {
+            return Ok(target_path);
+        }
+
+        if sftp.stat(Path::new(&target_path)).is_ok() {
+            return Err("A file or directory with the same name already exists".to_string());
+        }
+
+        sftp.rename(source_path, Path::new(&target_path), None)
+            .map_err(|e| e.to_string())?;
+        Ok(target_path)
+    })
+}
+
+#[tauri::command]
+pub fn delete_remote_entry(
+    server_id: String,
+    path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    with_server_sftp(state.inner(), &server_id, |sftp| {
+        let normalized_path = normalize_remote_path(&path);
+        if normalized_path == "/" {
+            return Err("Root directory cannot be deleted".to_string());
+        }
+
+        remove_remote_path_recursive(sftp, Path::new(&normalized_path))
     })
 }
 

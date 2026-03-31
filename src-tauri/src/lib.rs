@@ -47,6 +47,11 @@ pub fn run() {
             commands::list_remote_directory,
             commands::read_remote_file,
             commands::write_remote_file,
+            commands::create_remote_text_file,
+            commands::create_remote_directory,
+            commands::copy_remote_file,
+            commands::rename_remote_entry,
+            commands::delete_remote_entry,
             commands::upload_remote_file,
             commands::download_remote_file,
             ai::call_ai,
@@ -86,6 +91,7 @@ pub fn run() {
                 )?;
             }
             app.handle().plugin(tauri_plugin_dialog::init())?;
+            app.handle().plugin(tauri_plugin_clipboard_manager::init())?;
             Ok(())
         })
         .run(tauri::generate_context!())
