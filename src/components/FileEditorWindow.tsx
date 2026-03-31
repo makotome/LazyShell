@@ -38,23 +38,23 @@ function getLanguageExtensions(path: string): Extension[] {
 
 const macDarkEditorTheme = EditorView.theme({
   '&': {
-    backgroundColor: '#1b1d21',
-    color: '#d7dce2',
+    backgroundColor: '#15171c',
+    color: '#e1e6ec',
   },
   '.cm-content': {
-    caretColor: '#f5f7fa',
+    caretColor: '#eef2f6',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: '#f5f7fa',
+    borderLeftColor: '#eef2f6',
   },
   '.cm-activeLine': {
     backgroundColor: 'rgba(255, 255, 255, 0.045)',
   },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-    backgroundColor: 'rgba(88, 138, 214, 0.42)',
+    backgroundColor: 'rgba(188, 200, 214, 0.28)',
   },
   '.cm-gutters': {
-    backgroundColor: '#16181b',
+    backgroundColor: '#111318',
     color: '#7d8794',
   },
 }, { dark: true });

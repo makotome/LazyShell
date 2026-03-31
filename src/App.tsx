@@ -11,7 +11,6 @@ import { ServerStatus } from './components/ServerStatus';
 import { UnlockScreen } from './components/UnlockScreen';
 import { useCommandDatabase } from './hooks/useCommandDatabase';
 import type { ServerInfo, CommandHistory, CommandHistoryFile, TerminalContext, CommandOutput, ServerTab, LayoutMode, PendingAiTerminalExecution } from './types';
-import './App.css';
 
 function normalizePosixPath(path: string): string {
   if (!path.trim()) {

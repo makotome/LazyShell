@@ -4,10 +4,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background:
-    radial-gradient(circle at top left, rgba(49, 196, 255, 0.1), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(14, 116, 144, 0.18), transparent 34%),
-    linear-gradient(180deg, #08131d 0%, #050b12 100%);
+  background: #0f1115;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,11 +12,8 @@
 }
 
 .unlock-container {
-  background:
-    radial-gradient(circle at top right, rgba(49, 196, 255, 0.08), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
-    rgba(8, 15, 22, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #171a20;
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 10px;
   padding: 24px;
   width: 100%;
@@ -39,7 +33,7 @@
   font-weight: 700;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: rgba(49, 196, 255, 0.74);
+  color: rgba(var(--accent-rgb), 0.74);
   margin-bottom: 8px;
 }
 
@@ -51,11 +45,9 @@
   display: grid;
   place-items: center;
   font-size: 26px;
-  color: #dcf7ff;
-  background:
-    linear-gradient(135deg, rgba(49, 196, 255, 0.18), rgba(14, 116, 144, 0.16)),
-    rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(49, 196, 255, 0.2);
+  color: #eef2f6;
+  background: #20242b;
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 16px 30px rgba(0, 0, 0, 0.22);
@@ -64,14 +56,14 @@
 .unlock-title {
   font-size: 24px;
   font-weight: 700;
-  color: #edf6ff;
+  color: #eef2f6;
   margin: 0 0 8px 0;
   letter-spacing: -0.03em;
 }
 
 .unlock-subtitle {
   font-size: 13px;
-  color: #9eb4c7;
+  color: #a0a9b5;
   margin: 0;
   line-height: 1.6;
 }
@@ -91,7 +83,7 @@
 .form-group label {
   font-size: 13px;
   font-weight: 700;
-  color: #9eb4c7;
+  color: #a0a9b5;
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
@@ -99,23 +91,21 @@
 .form-group input {
   padding: 11px 12px;
   font-size: 14px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
-    rgba(7, 17, 26, 0.9);
+  background: #121419;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 7px;
-  color: #edf6ff;
+  color: #eef2f6;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .form-group input:focus {
-  border-color: #31c4ff;
-  box-shadow: 0 0 0 3px rgba(49, 196, 255, 0.14);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.14);
 }
 
 .form-group input::placeholder {
-  color: #5f7688;
+  color: #69717c;
 }
 
 .form-group input:disabled {
@@ -137,22 +127,22 @@
   padding: 11px 18px;
   font-size: 14px;
   font-weight: 700;
-  background: linear-gradient(135deg, #31c4ff 0%, #0ea5b7 50%, #1d6fa5 100%);
+  background: #c8d2de;
   border: none;
   border-radius: 7px;
-  color: white;
+  color: #12151a;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 14px 26px rgba(8, 34, 49, 0.3);
+    0 14px 26px rgba(0, 0, 0, 0.28);
 }
 
 .unlock-button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 16px 28px rgba(8, 34, 49, 0.34);
+    0 16px 28px rgba(0, 0, 0, 0.34);
 }
 
 .unlock-button:active:not(:disabled) {
@@ -173,18 +163,18 @@
 
 .unlock-hint p {
   font-size: 12px;
-  color: #7d93a5;
+  color: #808996;
   margin: 0 0 8px 0;
 }
 
 .unlock-hint .hint-path {
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
   font-size: 11px;
-  color: #5f7688;
+  color: #69717c;
 }
 
 .unlock-hint code {
-  background: rgba(255, 255, 255, 0.05);
+  background: #20242b;
   padding: 2px 6px;
   border-radius: 8px;
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
@@ -229,12 +219,12 @@
 }
 
 .unlock-reset-danger {
-  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  background: #bb4b45;
   color: white;
 }
 
 .unlock-reset-cancel {
-  background: rgba(255, 255, 255, 0.08);
+  background: #20242b;
   color: #d7e3ee;
 }
 
