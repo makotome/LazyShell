@@ -2163,6 +2163,17 @@ body {
   padding: 6px 10px 10px;
 }
 
+.server-list-hint {
+  margin: 4px 10px 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .server-group {
   margin-bottom: 10px;
 }
@@ -2209,8 +2220,15 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
-.server-name {
+.server-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
+  min-width: 0;
+}
+
+.server-name {
   font-weight: 500;
   min-width: 0;
   overflow: hidden;
@@ -2218,11 +2236,25 @@ body {
   white-space: nowrap;
 }
 
+.server-enter-arrow {
+  color: rgba(var(--accent-rgb), 0.7);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.18s, transform 0.18s, color 0.18s;
+  flex-shrink: 0;
+}
+
 .server-item:hover {
-  background: #20242c;
-  border-color: rgba(var(--accent-rgb), 0.2);
+  background:
+    linear-gradient(180deg, rgba(var(--accent-rgb), 0.08), transparent 85%),
+    rgba(25, 33, 44, 0.96);
+  border-color: rgba(var(--accent-rgb), 0.34);
   transform: translateY(-1px);
-  box-shadow: none;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .server-item.selected {
@@ -2236,6 +2268,12 @@ body {
   color: var(--text-secondary);
 }
 
+.server-item:hover .server-enter-arrow,
+.server-item.selected .server-enter-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
 .server-user {
   color: var(--text-muted);
   font-size: 12px;
@@ -2244,14 +2282,26 @@ body {
 
 .server-actions {
   display: flex;
+  align-items: center;
   gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
   flex-shrink: 0;
 }
 
-.server-item:hover .server-actions {
+.server-connect-btn {
+  white-space: nowrap;
+  padding: 5px 10px;
+}
+
+.server-action-icon {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.server-item:hover .server-action-icon,
+.server-item.selected .server-action-icon {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .empty-state {

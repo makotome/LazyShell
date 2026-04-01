@@ -33,7 +33,6 @@ export function ServerList({
     passphrase: '',
   });
   const [error, setError] = useState<string | null>(null);
-  const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
   const isAddFormOpen = addFormOpen ?? internalShowAddForm;
 
@@ -152,23 +151,6 @@ export function ServerList({
     }
   };
 
-  const handleTestConnection = async (serverId: string) => {
-    setConnectingServerId(serverId);
-    setError(null);
-    try {
-      const result = await invoke<boolean>('test_connection', { serverId });
-      if (result) {
-        alert('连接成功！');
-      } else {
-        setError('连接失败');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Connection test failed');
-    } finally {
-      setConnectingServerId(null);
-    }
-  };
-
   const groupedServers = useMemo(() => {
     const groups: Record<string, ServerInfo[]> = {};
     servers.forEach((server) => {
@@ -200,6 +182,8 @@ export function ServerList({
           </button>
         </div>
       )}
+
+      <div className="server-list-hint">可点击服务器卡片，或使用“连接服务器”按钮进入</div>
 
       {error && <div className="error-message">{error}</div>}
 
@@ -374,22 +358,24 @@ export function ServerList({
                   className={`server-item ${selectedServer === server.id ? 'selected' : ''}`}
                   onClick={() => onServerSelect(server.id)}
                 >
-                  <span className="server-name">{server.name}</span>
+                  <div className="server-main">
+                    <span className="server-name">{server.name}</span>
+                    <span className="server-enter-arrow" aria-hidden="true">→</span>
+                  </div>
                   <span className="server-user">@{server.username}</span>
                   <div className="server-actions">
                     <button
-                      className={`btn btn-icon ${connectingServerId === server.id ? 'btn-loading' : ''}`}
+                      className="btn btn-secondary btn-small server-connect-btn"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleTestConnection(server.id);
+                        void onServerSelect(server.id);
                       }}
-                      title="测试连接"
-                      disabled={connectingServerId !== null}
+                      title="连接服务器"
                     >
-                      {connectingServerId === server.id ? '⏳' : '🔗'}
+                      连接服务器
                     </button>
                     <button
-                      className="btn btn-icon"
+                      className="btn btn-icon server-action-icon"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleEditServer(server);
@@ -399,7 +385,7 @@ export function ServerList({
                       ✏️
                     </button>
                     <button
-                      className="btn btn-icon"
+                      className="btn btn-icon server-action-icon"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleRemoveServer(server.id);
