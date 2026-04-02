@@ -274,6 +274,8 @@ export interface RemoteDirectoryPayload {
   entries: RemoteEntry[];
 }
 
+export type RemoteBrowserConnectionState = 'checking' | 'reconnecting' | 'ready' | 'error';
+
 export interface RemoteFileContent {
   path: string;
   content: string;

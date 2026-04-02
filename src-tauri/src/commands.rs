@@ -503,7 +503,7 @@ pub fn reset_local_data_for_forgot_password(
 }
 
 fn with_server_sftp<T, F>(
-    state: &AppState,
+    ssh_manager: &SSHConnectionManager,
     server_id: &str,
     mut operation: F,
 ) -> Result<T, String>
@@ -513,12 +513,12 @@ where
     let mut last_error: Option<String> = None;
 
     for attempt in 0..2 {
-        let session = match state.ssh_manager.get_session(server_id) {
+        let session = match ssh_manager.get_session(server_id) {
             Ok(session) => session,
             Err(err) => {
                 last_error = Some(err.to_string());
                 if attempt == 0 {
-                    let _ = state.ssh_manager.close_session(server_id);
+                    let _ = ssh_manager.close_session(server_id);
                     continue;
                 }
                 break;
@@ -535,12 +535,25 @@ where
             Ok(value) => return Ok(value),
             Err(err) => {
                 last_error = Some(err);
-                let _ = state.ssh_manager.close_session(server_id);
+                let _ = ssh_manager.close_session(server_id);
             }
         }
     }
 
     Err(last_error.unwrap_or_else(|| "Failed to open SFTP session".to_string()))
+}
+
+async fn run_remote_task<T, F>(
+    ssh_manager: SSHConnectionManager,
+    operation: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(SSHConnectionManager) -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || operation(ssh_manager))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1259,12 +1272,38 @@ pub fn close_server_session(
 }
 
 #[tauri::command]
-pub fn list_remote_directory(
+pub async fn server_session_is_alive(
+    server_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| {
+        match manager.probe_pooled_session(&server_id) {
+            Ok(alive) => Ok(alive),
+            Err(_) => Ok(false),
+        }
+    }).await
+}
+
+#[tauri::command]
+pub async fn reconnect_server_session(
+    server_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| {
+        manager.reconnect_session(&server_id).map_err(|e| e.to_string())
+    }).await
+}
+
+#[tauri::command]
+pub async fn list_remote_directory(
     server_id: String,
     path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<RemoteDirectoryPayload, String> {
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let current_path = canonicalize_remote_directory(sftp, &path)?;
         let mut entries = Vec::new();
 
@@ -1293,16 +1332,17 @@ pub fn list_remote_directory(
             current_path,
             entries,
         })
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn read_remote_file(
+pub async fn read_remote_file(
     server_id: String,
     path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<RemoteFileContent, String> {
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let normalized = normalize_remote_path(&path);
         let remote_path = Path::new(&normalized);
         let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
@@ -1333,21 +1373,22 @@ pub fn read_remote_file(
             size,
             is_readonly: false,
         })
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn write_remote_file(
+pub async fn write_remote_file(
     server_id: String,
     path: String,
     content: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
     if content.len() as u64 > MAX_TEXT_EDIT_SIZE {
         return Err("Edited content exceeds the allowed size limit".to_string());
     }
 
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let normalized = normalize_remote_path(&path);
         let remote_path = Path::new(&normalized);
         let stat = sftp.stat(remote_path).map_err(|e| e.to_string())?;
@@ -1367,19 +1408,20 @@ pub fn write_remote_file(
 
         file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
         file.flush().map_err(|e| e.to_string())
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn create_remote_text_file(
+pub async fn create_remote_text_file(
     server_id: String,
     parent_dir: String,
     file_name: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
     let normalized_name = validate_remote_file_name(&file_name)?;
 
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let target_dir = canonicalize_remote_directory(sftp, &parent_dir)?;
         let target_path = build_remote_child_path(&target_dir, &normalized_name);
 
@@ -1399,19 +1441,20 @@ pub fn create_remote_text_file(
 
         remote.flush().map_err(|e| e.to_string())?;
         Ok(target_path)
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn create_remote_directory(
+pub async fn create_remote_directory(
     server_id: String,
     parent_dir: String,
     directory_name: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
     let normalized_name = validate_remote_file_name(&directory_name)?;
 
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let target_dir = canonicalize_remote_directory(sftp, &parent_dir)?;
         let target_path = build_remote_child_path(&target_dir, &normalized_name);
         let remote_path = Path::new(&target_path);
@@ -1422,19 +1465,20 @@ pub fn create_remote_directory(
 
         sftp.mkdir(remote_path, 0o755).map_err(|e| e.to_string())?;
         Ok(target_path)
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn copy_remote_file(
+pub async fn copy_remote_file(
     server_id: String,
     source_path: String,
     target_name: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
     let normalized_name = validate_remote_file_name(&target_name)?;
 
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let normalized_source_path = normalize_remote_path(&source_path);
         let source_remote_path = Path::new(&normalized_source_path);
         let stat = sftp.stat(source_remote_path).map_err(|e| e.to_string())?;
@@ -1474,19 +1518,20 @@ pub fn copy_remote_file(
         target_file.flush().map_err(|e| e.to_string())?;
 
         Ok(target_path)
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn rename_remote_entry(
+pub async fn rename_remote_entry(
     server_id: String,
     path: String,
     new_name: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
     let normalized_name = validate_remote_file_name(&new_name)?;
 
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let normalized_path = normalize_remote_path(&path);
         if normalized_path == "/" {
             return Err("Root directory cannot be renamed".to_string());
@@ -1511,31 +1556,32 @@ pub fn rename_remote_entry(
         sftp.rename(source_path, Path::new(&target_path), None)
             .map_err(|e| e.to_string())?;
         Ok(target_path)
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn delete_remote_entry(
+pub async fn delete_remote_entry(
     server_id: String,
     path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let normalized_path = normalize_remote_path(&path);
         if normalized_path == "/" {
             return Err("Root directory cannot be deleted".to_string());
         }
 
         remove_remote_path_recursive(sftp, Path::new(&normalized_path))
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn upload_remote_file(
+pub async fn upload_remote_file(
     server_id: String,
     remote_dir: String,
     local_path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
     let local = PathBuf::from(local_path);
     if !local.is_file() {
@@ -1545,10 +1591,12 @@ pub fn upload_remote_file(
     let file_name = local
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| "Local file name is invalid".to_string())?;
+        .ok_or_else(|| "Local file name is invalid".to_string())?
+        .to_string();
 
     let bytes = std::fs::read(&local).map_err(|e| e.to_string())?;
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let target_dir = canonicalize_remote_directory(sftp, &remote_dir)?;
         let target_path = if target_dir == "/" {
             format!("/{}", file_name)
@@ -1567,22 +1615,23 @@ pub fn upload_remote_file(
 
         remote.write_all(&bytes).map_err(|e| e.to_string())?;
         remote.flush().map_err(|e| e.to_string())
-    })
+    })).await
 }
 
 #[tauri::command]
-pub fn download_remote_file(
+pub async fn download_remote_file(
     server_id: String,
     remote_path: String,
     local_path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    with_server_sftp(state.inner(), &server_id, |sftp| {
+    let ssh_manager = state.ssh_manager.clone();
+    run_remote_task(ssh_manager, move |manager| with_server_sftp(&manager, &server_id, |sftp| {
         let normalized = normalize_remote_path(&remote_path);
         let mut remote = sftp.open(Path::new(&normalized)).map_err(|e| e.to_string())?;
         let mut bytes = Vec::new();
         remote.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
 
         std::fs::write(&local_path, bytes).map_err(|e| e.to_string())
-    })
+    })).await
 }

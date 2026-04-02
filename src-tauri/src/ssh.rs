@@ -3,6 +3,7 @@ use ssh2::{Session, DisconnectCode, Channel};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tempfile::NamedTempFile;
@@ -77,6 +78,58 @@ pub struct SSHConnection {
     is_pty_active: bool,
 }
 
+const SSH_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const SSH_IO_TIMEOUT: Duration = Duration::from_secs(8);
+const SSH_SESSION_TIMEOUT_MS: u32 = 8_000;
+
+fn connect_authenticated_session(server_config: &ServerConfig) -> Result<Session, SSHError> {
+    let address = format!("{}:{}", server_config.host, server_config.port);
+    let socket_addr = address
+        .to_socket_addrs()
+        .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?
+        .next()
+        .ok_or_else(|| SSHError::ConnectionFailed("Failed to resolve server address".to_string()))?;
+
+    let tcp = TcpStream::connect_timeout(&socket_addr, SSH_CONNECT_TIMEOUT)
+        .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
+    let _ = tcp.set_read_timeout(Some(SSH_IO_TIMEOUT));
+    let _ = tcp.set_write_timeout(Some(SSH_IO_TIMEOUT));
+    let _ = tcp.set_nodelay(true);
+
+    let mut session = Session::new().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
+    session.set_timeout(SSH_SESSION_TIMEOUT_MS);
+    session.set_tcp_stream(tcp);
+    session.handshake().map_err(|e: ssh2::Error| SSHError::ConnectionFailed(e.to_string()))?;
+
+    match &server_config.auth_method {
+        AuthMethod::Password { password } => {
+            session.userauth_password(&server_config.username, password)
+                .map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
+        }
+        AuthMethod::PrivateKey { key_data, passphrase } => {
+            let mut temp_file = NamedTempFile::new()
+                .map_err(|e| SSHError::IoError(e.to_string()))?;
+            temp_file.write_all(key_data.as_bytes())
+                .map_err(|e| SSHError::IoError(e.to_string()))?;
+            temp_file.flush()
+                .map_err(|e| SSHError::IoError(e.to_string()))?;
+
+            session.userauth_pubkey_file(
+                &server_config.username,
+                None,
+                temp_file.path(),
+                passphrase.as_deref(),
+            ).map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
+        }
+    }
+
+    if !session.authenticated() {
+        return Err(SSHError::AuthFailed("Authentication failed".to_string()));
+    }
+
+    Ok(session)
+}
+
 impl SSHConnection {
     pub fn new(server_config: ServerConfig) -> Self {
         Self {
@@ -88,41 +141,7 @@ impl SSHConnection {
     }
 
     pub fn connect(&mut self) -> Result<(), SSHError> {
-        let tcp = TcpStream::connect(format!("{}:{}", self.server_config.host, self.server_config.port))
-            .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-
-        let mut session = Session::new().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-        session.set_tcp_stream(tcp);
-        session.handshake().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-
-        match &self.server_config.auth_method {
-            AuthMethod::Password { password } => {
-                session.userauth_password(&self.server_config.username, password)
-                    .map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
-            AuthMethod::PrivateKey { key_data, passphrase } => {
-                // Write key to a temporary file since ssh2 requires file path
-                let mut temp_file = NamedTempFile::new()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                use std::io::Write;
-                temp_file.write_all(key_data.as_bytes())
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                temp_file.flush()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-
-                session.userauth_pubkey_file(
-                    &self.server_config.username,
-                    None,
-                    temp_file.path(),
-                    passphrase.as_deref(),
-                ).map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
-        }
-
-        if !session.authenticated() {
-            return Err(SSHError::AuthFailed("Authentication failed".to_string()));
-        }
-
+        let session = connect_authenticated_session(&self.server_config)?;
         self.session = Some(Arc::new(Mutex::new(session)));
         Ok(())
     }
@@ -353,7 +372,7 @@ impl SSHConnection {
             let _ = self.close_pty();
         }
         if let Some(session_arc) = self.session.take() {
-            let mut session = session_arc.lock().unwrap();
+            let session = session_arc.lock().unwrap();
             let _: Result<(), _> = session.disconnect(Some(DisconnectCode::ByApplication), "User disconnected", None);
         }
     }
@@ -374,21 +393,50 @@ impl SSHConnection {
     }
 }
 
+#[derive(Clone)]
 pub struct SSHConnectionManager {
-    connections: Mutex<Vec<SSHConnection>>,
-    interactive_connections: Mutex<Vec<SSHConnection>>,
+    connections: Arc<Mutex<Vec<SSHConnection>>>,
+    interactive_connections: Arc<Mutex<Vec<SSHConnection>>>,
     persistent_shells: Arc<Mutex<HashMap<String, PersistentShell>>>,
     session_pool: Arc<Mutex<HashMap<String, Arc<Mutex<Session>>>>>,
+    session_reconnect_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl SSHConnectionManager {
     pub fn new() -> Self {
         Self {
-            connections: Mutex::new(Vec::new()),
-            interactive_connections: Mutex::new(Vec::new()),
+            connections: Arc::new(Mutex::new(Vec::new())),
+            interactive_connections: Arc::new(Mutex::new(Vec::new())),
             persistent_shells: Arc::new(Mutex::new(HashMap::new())),
             session_pool: Arc::new(Mutex::new(HashMap::new())),
+            session_reconnect_locks: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    fn session_reconnect_lock(&self, server_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.session_reconnect_locks.lock().unwrap();
+        Arc::clone(
+            locks
+                .entry(server_id.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
+    }
+
+    fn create_session_for_server(&self, server_id: &str) -> Result<Arc<Mutex<Session>>, SSHError> {
+        let config = {
+            let connections = self.connections.lock().unwrap();
+            connections
+                .iter()
+                .find(|c| c.server_config.id == server_id)
+                .map(|c| c.server_config.clone())
+                .ok_or(SSHError::ConnectionFailed("Server not found".to_string()))?
+        };
+
+        let session = connect_authenticated_session(&config)?;
+        let session_arc = Arc::new(Mutex::new(session));
+        let mut pool = self.session_pool.lock().unwrap();
+        pool.insert(server_id.to_string(), Arc::clone(&session_arc));
+        Ok(session_arc)
     }
 
     pub fn add_connection(&self, config: ServerConfig) -> Result<String, SSHError> {
@@ -561,55 +609,66 @@ impl SSHConnectionManager {
             }
         }
 
-        // 2. Get server config
-        let config = {
-            let connections = self.connections.lock().unwrap();
-            connections.iter()
-                .find(|c| c.server_config.id == server_id)
-                .map(|c| c.server_config.clone())
-                .ok_or(SSHError::ConnectionFailed("Server not found".to_string()))?
+        let reconnect_lock = self.session_reconnect_lock(server_id);
+        let _reconnect_guard = reconnect_lock.lock().unwrap();
+
+        {
+            let pool = self.session_pool.lock().unwrap();
+            if let Some(session) = pool.get(server_id) {
+                if session.lock().unwrap().authenticated() {
+                    return Ok(Arc::clone(session));
+                }
+            }
+        }
+
+        self.create_session_for_server(server_id)
+    }
+
+    pub fn probe_pooled_session(&self, server_id: &str) -> Result<bool, SSHError> {
+        let session = {
+            let pool = self.session_pool.lock().unwrap();
+            pool.get(server_id).cloned()
         };
 
-        // 3. Establish new session
-        let tcp = TcpStream::connect(format!("{}:{}", config.host, config.port))
-            .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
+        let Some(session) = session else {
+            return Ok(false);
+        };
 
-        let mut session = Session::new().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-        session.set_tcp_stream(tcp);
-        session.handshake().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-
-        match &config.auth_method {
-            AuthMethod::Password { password } => {
-                session.userauth_password(&config.username, password)
-                    .map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
-            AuthMethod::PrivateKey { key_data, passphrase } => {
-                let mut temp_file = NamedTempFile::new()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                temp_file.write_all(key_data.as_bytes())
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                temp_file.flush()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-
-                session.userauth_pubkey_file(
-                    &config.username,
-                    None,
-                    temp_file.path(),
-                    passphrase.as_deref(),
-                ).map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
+        let session_guard = session.lock().unwrap();
+        if !session_guard.authenticated() {
+            drop(session_guard);
+            let _ = self.close_session(server_id);
+            return Ok(false);
         }
 
-        if !session.authenticated() {
-            return Err(SSHError::AuthFailed("Authentication failed".to_string()));
+        match session_guard.sftp() {
+            Ok(_) => Ok(true),
+            Err(_) => {
+                drop(session_guard);
+                let _ = self.close_session(server_id);
+                Ok(false)
+            }
+        }
+    }
+
+    pub fn probe_session(&self, server_id: &str) -> Result<bool, SSHError> {
+        let session = self.get_session(server_id)?;
+        let session_guard = session.lock().unwrap();
+        if !session_guard.authenticated() {
+            return Ok(false);
         }
 
-        // 4. Store in pool
-        let session_arc = Arc::new(Mutex::new(session));
-        let mut pool = self.session_pool.lock().unwrap();
-        pool.insert(server_id.to_string(), Arc::clone(&session_arc));
+        session_guard
+            .sftp()
+            .map(|_| true)
+            .map_err(|e| SSHError::ConnectionFailed(e.to_string()))
+    }
 
-        Ok(session_arc)
+    pub fn reconnect_session(&self, server_id: &str) -> Result<(), SSHError> {
+        let reconnect_lock = self.session_reconnect_lock(server_id);
+        let _reconnect_guard = reconnect_lock.lock().unwrap();
+        let _ = self.close_session(server_id);
+        self.create_session_for_server(server_id).map(|_| ())
     }
 
     /// Close and remove a session from the pool
@@ -619,7 +678,7 @@ impl SSHConnectionManager {
             // Clone Arc so we can release the lock before returning
             let session_arc_clone = Arc::clone(&session_arc);
             drop(pool); // Release lock before disconnect
-            let mut session = session_arc_clone.lock().unwrap();
+            let session = session_arc_clone.lock().unwrap();
             let _: Result<(), _> = session.disconnect(None, "Closing idle session", None);
             Some(session_arc)
         } else {
@@ -698,40 +757,7 @@ impl PersistentShell {
 
     /// Helper method to establish an authenticated session
     fn establish_session(server_config: &ServerConfig) -> Result<Session, SSHError> {
-        let tcp = TcpStream::connect(format!("{}:{}", server_config.host, server_config.port))
-            .map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-
-        let mut session = Session::new().map_err(|e| SSHError::ConnectionFailed(e.to_string()))?;
-        session.set_tcp_stream(tcp);
-        session.handshake().map_err(|e: ssh2::Error| SSHError::ConnectionFailed(e.to_string()))?;
-
-        match &server_config.auth_method {
-            AuthMethod::Password { password } => {
-                session.userauth_password(&server_config.username, password)
-                    .map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
-            AuthMethod::PrivateKey { key_data, passphrase } => {
-                let mut temp_file = NamedTempFile::new()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                temp_file.write_all(key_data.as_bytes())
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-                temp_file.flush()
-                    .map_err(|e| SSHError::IoError(e.to_string()))?;
-
-                session.userauth_pubkey_file(
-                    &server_config.username,
-                    None,
-                    temp_file.path(),
-                    passphrase.as_deref(),
-                ).map_err(|e: ssh2::Error| SSHError::AuthFailed(e.to_string()))?;
-            }
-        }
-
-        if !session.authenticated() {
-            return Err(SSHError::AuthFailed("Authentication failed".to_string()));
-        }
-
-        Ok(session)
+        connect_authenticated_session(server_config)
     }
 
     /// Helper method to calculate PTY pixel dimensions from character dimensions

@@ -44,6 +44,8 @@ pub fn run() {
             commands::shell_resize,
             commands::reconnect_shell,
             commands::close_shell_session,
+            commands::server_session_is_alive,
+            commands::reconnect_server_session,
             commands::list_remote_directory,
             commands::read_remote_file,
             commands::write_remote_file,

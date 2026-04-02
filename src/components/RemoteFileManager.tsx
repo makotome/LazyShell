@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { UnlistenFn } from '@tauri-apps/api/event';
-import type { RemoteDirectoryPayload, RemoteEntry } from '../types';
+import type { RemoteBrowserConnectionState, RemoteDirectoryPayload, RemoteEntry } from '../types';
 import { openFileEditorWindow } from '../utils/remoteWindows';
 
 interface TreeNodeState {
@@ -38,9 +38,21 @@ interface DeleteDialogState {
   targetEntry: RemoteEntry;
 }
 
+interface RemoteActionOptions {
+  actionLabel?: string;
+  skipConnectionCheck?: boolean;
+  retryOnConnectionError?: boolean;
+  checkingMessage?: string;
+  reconnectingMessage?: string;
+  maxReconnectAttempts?: number;
+}
+
 const CONTEXT_MENU_WIDTH = 176;
 const CONTEXT_MENU_ESTIMATED_HEIGHT = 180;
 const CONTEXT_MENU_VIEWPORT_MARGIN = 12;
+const SERVER_SESSION_CHECK_TIMEOUT_MS = 2_500;
+const SERVER_RECONNECT_TIMEOUT_MS = 15_000;
+const REMOTE_COMMAND_TIMEOUT_MS = 12_000;
 
 function formatFileSize(size: number | null): string {
   if (size == null) return '目录';
@@ -56,6 +68,73 @@ function formatTimestamp(timestamp: number | null): string {
 
 function isDirectory(entry: RemoteEntry): boolean {
   return entry.entryType === 'directory';
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeConnectionErrorMessage(error: unknown): string {
+  const message = getErrorMessage(error);
+  if (message.toLowerCase().includes('timeout') || message.includes('超时')) {
+    return '操作超时，服务器没有及时响应，请重试连接。';
+  }
+  return message;
+}
+
+function describeQueuedOperation(operationLabel: string | null): string | null {
+  if (!operationLabel) {
+    return null;
+  }
+
+  if (operationLabel.includes('读取目录')) {
+    return '连接恢复后将继续读取目录内容。';
+  }
+  if (operationLabel.includes('加载目录树')) {
+    return '连接恢复后将继续刷新目录树。';
+  }
+  if (operationLabel.includes('上传文件')) {
+    return '连接恢复后将继续上传文件。';
+  }
+  if (operationLabel.includes('下载文件')) {
+    return '连接恢复后将继续下载文件。';
+  }
+  if (operationLabel.includes('创建文件夹')) {
+    return '连接恢复后将继续创建文件夹。';
+  }
+  if (operationLabel.includes('创建文件')) {
+    return '连接恢复后将继续创建文件。';
+  }
+  if (operationLabel.includes('复制文件')) {
+    return '连接恢复后将继续复制文件。';
+  }
+  if (operationLabel.includes('重命名')) {
+    return '连接恢复后将继续重命名条目。';
+  }
+  if (operationLabel.includes('删除')) {
+    return '连接恢复后将继续删除条目。';
+  }
+
+  return '连接恢复后将继续当前操作。';
+}
+
+function isConnectionRelatedError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('超时') ||
+    message.includes('服务器响应') ||
+    message.includes('not connected') ||
+    message.includes('connection failed') ||
+    message.includes('failed to open sftp session') ||
+    message.includes('authentication failed') ||
+    message.includes('auth failed') ||
+    message.includes('broken pipe') ||
+    message.includes('socket disconnected') ||
+    message.includes('transport') ||
+    message.includes('channel closed')
+  );
 }
 
 function getRemotePathChain(path: string): string[] {
@@ -81,6 +160,21 @@ function buildCopyFileName(name: string): string {
   return `${name}-copy`;
 }
 
+async function invokeWithTimeout<T>(
+  command: string,
+  args: Record<string, unknown>,
+  timeoutMs = REMOTE_COMMAND_TIMEOUT_MS,
+): Promise<T> {
+  return await Promise.race([
+    invoke<T>(command, args),
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => {
+        reject(new Error('操作超时，正在等待服务器响应'));
+      }, timeoutMs);
+    }),
+  ]);
+}
+
 export function RemoteFileManager({
   tabId,
   serverId,
@@ -100,13 +194,150 @@ export function RemoteFileManager({
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null);
   const [inputDialog, setInputDialog] = useState<FileInputDialogState | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
+  const [connectionState, setConnectionState] = useState<RemoteBrowserConnectionState>('checking');
+  const [connectionMessage, setConnectionMessage] = useState('正在检查服务器连接...');
+  const [operationLabel, setOperationLabel] = useState<string | null>(null);
+  const [showSlowHint, setShowSlowHint] = useState(false);
+  const reconnectPromiseRef = useRef<Promise<boolean> | null>(null);
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.path === selectedEntryPath) ?? null,
     [entries, selectedEntryPath]
   );
 
-  const loadTreeChildren = useCallback(async (path: string) => {
+  const ensureServerConnection = useCallback(async (options?: {
+    forceReconnect?: boolean;
+    checkingMessage?: string;
+    reconnectingMessage?: string;
+  }) => {
+    if (reconnectPromiseRef.current) {
+      return reconnectPromiseRef.current;
+    }
+
+    const checkingMessage = options?.checkingMessage ?? '正在检查服务器连接...';
+    const reconnectingMessage = options?.reconnectingMessage ?? '正在重连服务器连接...';
+
+    const reconnectTask = (async () => {
+      setError(null);
+
+      if (!options?.forceReconnect) {
+        setConnectionState('checking');
+        setConnectionMessage(checkingMessage);
+
+        try {
+          const alive = await invokeWithTimeout<boolean>(
+            'server_session_is_alive',
+            { serverId },
+            SERVER_SESSION_CHECK_TIMEOUT_MS,
+          );
+          if (alive) {
+            setConnectionState('ready');
+            setConnectionMessage('');
+            return true;
+          }
+        } catch (error) {
+          if (!isConnectionRelatedError(error)) {
+            throw error;
+          }
+        }
+      }
+
+      setConnectionState('reconnecting');
+      setConnectionMessage(reconnectingMessage);
+
+      try {
+        await invokeWithTimeout(
+          'reconnect_server_session',
+          { serverId },
+          SERVER_RECONNECT_TIMEOUT_MS,
+        );
+        setConnectionState('ready');
+        setConnectionMessage('');
+        return true;
+      } catch (error) {
+        setConnectionState('error');
+        setConnectionMessage('连接恢复失败，请重试或关闭窗口。');
+        setError(getErrorMessage(error));
+        return false;
+      }
+    })();
+
+    reconnectPromiseRef.current = reconnectTask;
+
+    try {
+      return await reconnectTask;
+    } finally {
+      reconnectPromiseRef.current = null;
+    }
+  }, [serverId]);
+
+  const runRemoteAction = useCallback(async <T,>(
+    action: () => Promise<T>,
+    options?: RemoteActionOptions,
+  ) => {
+    if (options?.actionLabel) {
+      setOperationLabel(options.actionLabel);
+    }
+
+    try {
+      if (!options?.skipConnectionCheck) {
+        const ready = await ensureServerConnection({
+          checkingMessage: options?.checkingMessage,
+          reconnectingMessage: options?.reconnectingMessage,
+        });
+        if (!ready) {
+          throw new Error('连接恢复失败，请稍后重试。');
+        }
+      }
+
+      const maxReconnectAttempts = options?.retryOnConnectionError
+        ? Math.max(1, options?.maxReconnectAttempts ?? 2)
+        : 0;
+
+      for (let reconnectAttempt = 0; ; reconnectAttempt += 1) {
+        try {
+          const result = await action();
+          setConnectionState('ready');
+          setConnectionMessage('');
+          setError(null);
+          return result;
+        } catch (actionError) {
+          if (!options?.retryOnConnectionError || !isConnectionRelatedError(actionError)) {
+            throw actionError;
+          }
+
+          if (reconnectAttempt >= maxReconnectAttempts) {
+            setConnectionState('error');
+            setConnectionMessage('连接恢复失败，请重试或关闭窗口。');
+            setError(normalizeConnectionErrorMessage(actionError));
+            throw actionError;
+          }
+
+          const reconnectLabel = reconnectAttempt === 0
+            ? (options?.reconnectingMessage ?? '正在自动重连服务器连接...')
+            : '连接恢复较慢，正在再次重连服务器连接...';
+
+          const recovered = await ensureServerConnection({
+            forceReconnect: true,
+            reconnectingMessage: reconnectLabel,
+          });
+
+          if (!recovered) {
+            setConnectionState('error');
+            setConnectionMessage('连接恢复失败，请重试或关闭窗口。');
+            setError(normalizeConnectionErrorMessage(actionError));
+            throw actionError;
+          }
+        }
+      }
+    } finally {
+      if (options?.actionLabel) {
+        setOperationLabel(null);
+      }
+    }
+  }, [ensureServerConnection]);
+
+  const loadTreeChildren = useCallback(async (path: string, options?: { skipConnectionCheck?: boolean; silent?: boolean }) => {
     setTreeState((prev) => ({
       ...prev,
       [path]: {
@@ -116,7 +347,18 @@ export function RemoteFileManager({
     }));
 
     try {
-      const payload = await invoke<RemoteDirectoryPayload>('list_remote_directory', { serverId, path });
+      const payload = await runRemoteAction(
+        () => invokeWithTimeout<RemoteDirectoryPayload>('list_remote_directory', { serverId, path }),
+        {
+          actionLabel: options?.silent ? undefined : '正在加载目录树...',
+          skipConnectionCheck: options?.skipConnectionCheck,
+          retryOnConnectionError: true,
+          checkingMessage: '正在检查文件浏览器连接...',
+          reconnectingMessage: '正在恢复文件浏览器连接...',
+          maxReconnectAttempts: 2,
+        }
+      );
+
       setTreeState((prev) => ({
         ...prev,
         [payload.currentPath]: {
@@ -124,9 +366,14 @@ export function RemoteFileManager({
           children: payload.entries.filter(isDirectory),
         },
       }));
+
       return payload;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+    } catch (error) {
+      const message = normalizeConnectionErrorMessage(error);
+      if (isConnectionRelatedError(error)) {
+        setConnectionState('error');
+        setConnectionMessage('连接恢复失败，请重试或关闭窗口。');
+      }
       setTreeState((prev) => ({
         ...prev,
         [path]: {
@@ -135,18 +382,29 @@ export function RemoteFileManager({
           error: message,
         },
       }));
-      throw err;
+      throw error;
     }
-  }, [serverId]);
+  }, [runRemoteAction, serverId]);
 
-  const loadDirectory = useCallback(async (path: string, options?: { quiet?: boolean }) => {
+  const loadDirectory = useCallback(async (path: string, options?: { quiet?: boolean; skipConnectionCheck?: boolean }) => {
     if (!options?.quiet) {
       setLoading(true);
     }
     setError(null);
 
     try {
-      const payload = await invoke<RemoteDirectoryPayload>('list_remote_directory', { serverId, path });
+      const payload = await runRemoteAction(
+        () => invokeWithTimeout<RemoteDirectoryPayload>('list_remote_directory', { serverId, path }),
+        {
+          actionLabel: options?.quiet ? undefined : '正在读取目录...',
+          skipConnectionCheck: options?.skipConnectionCheck,
+          retryOnConnectionError: true,
+          checkingMessage: '正在检查目录连接...',
+          reconnectingMessage: '正在恢复目录连接...',
+          maxReconnectAttempts: 2,
+        }
+      );
+
       setCurrentPath(payload.currentPath);
       setParentPath(payload.parentPath);
       setEntries(payload.entries);
@@ -167,26 +425,58 @@ export function RemoteFileManager({
       }));
 
       for (const ancestorPath of pathChain.slice(0, -1)) {
-        await loadTreeChildren(ancestorPath).catch(() => undefined);
+        await loadTreeChildren(ancestorPath, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
       }
+
       return payload;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      throw err;
+    } catch (error) {
+      if (isConnectionRelatedError(error)) {
+        setConnectionState('error');
+        setConnectionMessage('连接恢复失败，请重试或关闭窗口。');
+        setError(normalizeConnectionErrorMessage(error));
+      } else {
+        setError(getErrorMessage(error));
+      }
+      throw error;
     } finally {
       if (!options?.quiet) {
         setLoading(false);
       }
     }
-  }, [loadTreeChildren, serverId, serverName]);
+  }, [loadTreeChildren, runRemoteAction, serverId, serverName]);
 
   useEffect(() => {
-    void Promise.allSettled([
-      loadTreeChildren('/'),
-      loadDirectory(initialDir || '/'),
-    ]);
-  }, [initialDir, loadDirectory, loadTreeChildren]);
+    let cancelled = false;
+
+    const initialize = async () => {
+      try {
+        const ready = await ensureServerConnection({
+          checkingMessage: '正在检查文件浏览器连接...',
+          reconnectingMessage: '正在恢复文件浏览器连接...',
+        });
+        if (!ready || cancelled) {
+          return;
+        }
+
+        await loadDirectory(initialDir || '/', { skipConnectionCheck: true });
+        if (!cancelled) {
+          await loadTreeChildren('/', { skipConnectionCheck: true, silent: true }).catch(() => undefined);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setError(getErrorMessage(error));
+          setConnectionState('error');
+          setConnectionMessage('连接恢复失败，请重试或关闭窗口。');
+        }
+      }
+    };
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureServerConnection, initialDir, loadDirectory, loadTreeChildren]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
@@ -210,6 +500,16 @@ export function RemoteFileManager({
     const timer = window.setTimeout(() => setNotice(null), 2600);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (!loading && connectionState === 'ready') {
+      setShowSlowHint(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setShowSlowHint(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, [connectionState, loading]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -267,7 +567,9 @@ export function RemoteFileManager({
     const expandedPaths = Object.entries(expandedTreePaths)
       .filter(([, expanded]) => expanded)
       .map(([path]) => path);
-    await Promise.allSettled(expandedPaths.map((path) => loadTreeChildren(path)));
+    for (const path of expandedPaths) {
+      await loadTreeChildren(path, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
+    }
     setNotice('目录已刷新');
   }, [currentPath, expandedTreePaths, loadDirectory, loadTreeChildren]);
 
@@ -321,18 +623,25 @@ export function RemoteFileManager({
         return;
       }
 
-      await invoke('upload_remote_file', {
-        serverId,
-        remoteDir: currentPath,
-        localPath: selected,
-      });
+      await runRemoteAction(
+        () => invokeWithTimeout('upload_remote_file', {
+          serverId,
+          remoteDir: currentPath,
+          localPath: selected,
+        }),
+        {
+          actionLabel: '正在上传文件...',
+          retryOnConnectionError: true,
+          maxReconnectAttempts: 2,
+        }
+      );
       await loadDirectory(currentPath, { quiet: true });
-      await loadTreeChildren(currentPath).catch(() => {});
+      await loadTreeChildren(currentPath, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
       setNotice('文件上传成功');
     } finally {
       setBusyAction(null);
     }
-  }, [currentPath, loadDirectory, loadTreeChildren, serverId]);
+  }, [currentPath, loadDirectory, loadTreeChildren, runRemoteAction, serverId]);
 
   const handleDownload = useCallback(async () => {
     if (!selectedEntry || isDirectory(selectedEntry)) {
@@ -349,16 +658,23 @@ export function RemoteFileManager({
         return;
       }
 
-      await invoke('download_remote_file', {
-        serverId,
-        remotePath: selectedEntry.path,
-        localPath: targetPath,
-      });
+      await runRemoteAction(
+        () => invokeWithTimeout('download_remote_file', {
+          serverId,
+          remotePath: selectedEntry.path,
+          localPath: targetPath,
+        }),
+        {
+          actionLabel: '正在下载文件...',
+          retryOnConnectionError: true,
+          maxReconnectAttempts: 2,
+        }
+      );
       setNotice('文件已下载到本地');
     } finally {
       setBusyAction(null);
     }
-  }, [selectedEntry, serverId]);
+  }, [runRemoteAction, selectedEntry, serverId]);
 
   const openContextMenu = useCallback((event: MouseEvent, entry: RemoteEntry | null) => {
     event.preventDefault();
@@ -367,8 +683,14 @@ export function RemoteFileManager({
       setSelectedEntryPath(entry.path);
     }
 
-    const maxX = Math.max(CONTEXT_MENU_VIEWPORT_MARGIN, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_MARGIN);
-    const maxY = Math.max(CONTEXT_MENU_VIEWPORT_MARGIN, window.innerHeight - CONTEXT_MENU_ESTIMATED_HEIGHT - CONTEXT_MENU_VIEWPORT_MARGIN);
+    const maxX = Math.max(
+      CONTEXT_MENU_VIEWPORT_MARGIN,
+      window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_MARGIN
+    );
+    const maxY = Math.max(
+      CONTEXT_MENU_VIEWPORT_MARGIN,
+      window.innerHeight - CONTEXT_MENU_ESTIMATED_HEIGHT - CONTEXT_MENU_VIEWPORT_MARGIN
+    );
     setContextMenu({
       x: Math.min(event.clientX, maxX),
       y: Math.min(event.clientY, maxY),
@@ -383,13 +705,20 @@ export function RemoteFileManager({
 
   const handleCreateTextFile = useCallback(async (fileName: string) => {
     try {
-      const createdPath = await invoke<string>('create_remote_text_file', {
-        serverId,
-        parentDir: currentPath,
-        fileName,
-      });
+      const createdPath = await runRemoteAction(
+        () => invokeWithTimeout<string>('create_remote_text_file', {
+          serverId,
+          parentDir: currentPath,
+          fileName,
+        }),
+        {
+          actionLabel: '正在创建文件...',
+          retryOnConnectionError: true,
+          maxReconnectAttempts: 2,
+        }
+      );
       await loadDirectory(currentPath, { quiet: true });
-      await loadTreeChildren(currentPath).catch(() => {});
+      await loadTreeChildren(currentPath, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
       setSelectedEntryPath(createdPath);
       setNotice(`已创建 ${fileName}`);
       await openFileEditorWindow({
@@ -398,42 +727,56 @@ export function RemoteFileManager({
         serverName,
         path: createdPath,
       });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(getErrorMessage(error));
     }
-  }, [currentPath, loadDirectory, loadTreeChildren, serverId, serverName, tabId]);
+  }, [currentPath, loadDirectory, loadTreeChildren, runRemoteAction, serverId, serverName, tabId]);
 
   const handleCreateDirectory = useCallback(async (directoryName: string) => {
     try {
-      const createdPath = await invoke<string>('create_remote_directory', {
-        serverId,
-        parentDir: currentPath,
-        directoryName,
-      });
+      const createdPath = await runRemoteAction(
+        () => invokeWithTimeout<string>('create_remote_directory', {
+          serverId,
+          parentDir: currentPath,
+          directoryName,
+        }),
+        {
+          actionLabel: '正在创建文件夹...',
+          retryOnConnectionError: true,
+          maxReconnectAttempts: 2,
+        }
+      );
       await loadDirectory(currentPath, { quiet: true });
-      await loadTreeChildren(currentPath).catch(() => {});
+      await loadTreeChildren(currentPath, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
       setSelectedEntryPath(createdPath);
       setNotice(`已创建文件夹 ${directoryName}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(getErrorMessage(error));
     }
-  }, [currentPath, loadDirectory, loadTreeChildren, serverId]);
+  }, [currentPath, loadDirectory, loadTreeChildren, runRemoteAction, serverId]);
 
   const handleCopyFile = useCallback(async (targetEntry: RemoteEntry, targetName: string) => {
     try {
-      const copiedPath = await invoke<string>('copy_remote_file', {
-        serverId,
-        sourcePath: targetEntry.path,
-        targetName,
-      });
+      const copiedPath = await runRemoteAction(
+        () => invokeWithTimeout<string>('copy_remote_file', {
+          serverId,
+          sourcePath: targetEntry.path,
+          targetName,
+        }),
+        {
+          actionLabel: '正在复制文件...',
+          retryOnConnectionError: true,
+          maxReconnectAttempts: 2,
+        }
+      );
       await loadDirectory(currentPath, { quiet: true });
-      await loadTreeChildren(currentPath).catch(() => {});
+      await loadTreeChildren(currentPath, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
       setSelectedEntryPath(copiedPath);
       setNotice(`已复制 ${targetEntry.name}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(getErrorMessage(error));
     }
-  }, [currentPath, loadDirectory, loadTreeChildren, serverId]);
+  }, [currentPath, loadDirectory, loadTreeChildren, runRemoteAction, serverId]);
 
   const canCopyFile = !!contextMenu?.entry && !isDirectory(contextMenu.entry);
   const canManageEntry = !!contextMenu?.entry;
@@ -494,19 +837,26 @@ export function RemoteFileManager({
         return;
       }
 
-      const renamedPath = await invoke<string>('rename_remote_entry', {
-        serverId,
-        path: targetEntry.path,
-        newName: nextValue,
-      });
+      const renamedPath = await runRemoteAction(
+        () => invokeWithTimeout<string>('rename_remote_entry', {
+          serverId,
+          path: targetEntry.path,
+          newName: nextValue,
+        }),
+        {
+          actionLabel: '正在重命名...',
+          retryOnConnectionError: true,
+          maxReconnectAttempts: 2,
+        }
+      );
       await loadDirectory(currentPath, { quiet: true });
-      await loadTreeChildren(currentPath).catch(() => {});
+      await loadTreeChildren(currentPath, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
       setSelectedEntryPath(renamedPath);
       setNotice(`${targetEntry.name} 已重命名为 ${nextValue}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(getErrorMessage(error));
     }
-  }, [currentPath, handleCopyFile, handleCreateDirectory, handleCreateTextFile, inputDialog, loadDirectory, loadTreeChildren, serverId]);
+  }, [currentPath, handleCopyFile, handleCreateDirectory, handleCreateTextFile, inputDialog, loadDirectory, loadTreeChildren, runRemoteAction, serverId]);
 
   const handleDeleteEntry = useCallback(async () => {
     const targetEntry = contextMenu?.entry;
@@ -525,18 +875,38 @@ export function RemoteFileManager({
     }
 
     try {
-      await invoke('delete_remote_entry', {
-        serverId,
-        path: targetEntry.path,
-      });
+      await runRemoteAction(
+        () => invokeWithTimeout('delete_remote_entry', {
+          serverId,
+          path: targetEntry.path,
+        }),
+        {
+          actionLabel: '正在删除...',
+          retryOnConnectionError: true,
+          maxReconnectAttempts: 2,
+        }
+      );
       await loadDirectory(currentPath, { quiet: true });
-      await loadTreeChildren(currentPath).catch(() => {});
+      await loadTreeChildren(currentPath, { skipConnectionCheck: true, silent: true }).catch(() => undefined);
       setSelectedEntryPath((prev) => (prev === targetEntry.path ? null : prev));
       setNotice(`${targetEntry.name} 已删除`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(getErrorMessage(error));
     }
-  }, [currentPath, deleteDialog?.targetEntry, loadDirectory, loadTreeChildren, serverId]);
+  }, [currentPath, deleteDialog?.targetEntry, loadDirectory, loadTreeChildren, runRemoteAction, serverId]);
+
+  const handleRetryConnection = useCallback(async () => {
+    setError(null);
+    setNotice(null);
+    const ready = await ensureServerConnection({
+      forceReconnect: true,
+      reconnectingMessage: '正在重连服务器连接...',
+    });
+    if (ready) {
+      await loadDirectory(currentPath, { skipConnectionCheck: true });
+      await loadTreeChildren('/', { skipConnectionCheck: true, silent: true }).catch(() => undefined);
+    }
+  }, [currentPath, ensureServerConnection, loadDirectory, loadTreeChildren]);
 
   const renderTreeNode = useCallback((path: string, label: string, level: number) => {
     const node = treeState[path];
@@ -554,7 +924,7 @@ export function RemoteFileManager({
             type="button"
             className="remote-tree-toggle"
             onClick={() => { void handleToggleTreeNode(path); }}
-            disabled={node?.status === 'loading'}
+            disabled={node?.status === 'loading' || connectionState === 'checking' || connectionState === 'reconnecting'}
             aria-label={expanded ? '收起目录' : '展开目录'}
           >
             {expanded ? '▾' : '▸'}
@@ -563,6 +933,7 @@ export function RemoteFileManager({
             type="button"
             className="remote-tree-label"
             onClick={() => { void handleSelectTreeNode(path); }}
+            disabled={connectionState === 'checking' || connectionState === 'reconnecting'}
           >
             <span className="remote-tree-icon">📁</span>
             <span>{label}</span>
@@ -592,17 +963,47 @@ export function RemoteFileManager({
         )}
       </div>
     );
-  }, [currentPath, expandedTreePaths, handleSelectTreeNode, handleToggleTreeNode, treeState]);
+  }, [connectionState, currentPath, expandedTreePaths, handleSelectTreeNode, handleToggleTreeNode, treeState]);
+
+  const isConnectionBusy = connectionState === 'checking' || connectionState === 'reconnecting';
+  const isRemoteActionDisabled = loading || busyAction !== null || isConnectionBusy;
+  const queuedOperationMessage = describeQueuedOperation(operationLabel);
+  const statusPrimaryMessage = error
+    || (connectionState !== 'ready' ? connectionMessage : (operationLabel || notice));
+  const statusSecondaryMessage = error
+    ? (showSlowHint ? '服务器响应较慢。你可以继续等待，也可以稍后重试连接。' : null)
+    : (connectionState !== 'ready'
+      ? (queuedOperationMessage || (showSlowHint ? '服务器响应较慢，窗口仍然保持可用。' : null))
+      : (loading
+        ? (showSlowHint ? '目录内容仍在读取，旧内容会暂时保留。' : '目录内容读取完成后会自动刷新。')
+        : null));
+  const hasBanner = Boolean(statusPrimaryMessage || statusSecondaryMessage);
+  const listOverlayMessage = connectionState !== 'ready'
+    ? connectionMessage
+    : (operationLabel || (loading ? '正在读取目录...' : null));
+  const listOverlayDetail = connectionState !== 'ready'
+    ? (queuedOperationMessage || (showSlowHint ? '服务器响应较慢，正在继续恢复连接。' : null))
+    : (showSlowHint ? '目录内容仍在加载，旧内容会暂时保留。' : '读取完成后将自动刷新当前列表。');
 
   return (
     <div className="window-shell window-shell-browser">
       <div className="remote-file-manager remote-file-manager-window">
         <div className="remote-file-toolbar">
           <div className="remote-file-toolbar-main">
-            <button type="button" className="btn btn-secondary btn-small" onClick={() => { void handleNavigateUp(); }} disabled={!parentPath || loading}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={() => { void handleNavigateUp(); }}
+              disabled={!parentPath || isRemoteActionDisabled}
+            >
               返回上一级
             </button>
-            <button type="button" className="btn btn-secondary btn-small" onClick={() => { void handleRefresh(); }} disabled={loading}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={() => { void handleRefresh(); }}
+              disabled={isRemoteActionDisabled}
+            >
               刷新
             </button>
             <div className="remote-file-breadcrumb" title={currentPath}>
@@ -611,23 +1012,42 @@ export function RemoteFileManager({
             </div>
           </div>
           <div className="remote-file-toolbar-actions">
-            <button type="button" className="btn btn-secondary btn-small" onClick={() => { void handleUpload(); }} disabled={busyAction !== null}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={() => { void handleUpload(); }}
+              disabled={busyAction !== null || isConnectionBusy}
+            >
               {busyAction === 'upload' ? '上传中...' : '上传文件'}
             </button>
             <button
               type="button"
               className="btn btn-secondary btn-small"
               onClick={() => { void handleDownload(); }}
-              disabled={busyAction !== null || !selectedEntry || isDirectory(selectedEntry)}
+              disabled={busyAction !== null || isConnectionBusy || !selectedEntry || isDirectory(selectedEntry)}
             >
               {busyAction === 'download' ? '下载中...' : '下载到本地'}
             </button>
           </div>
         </div>
 
-        {(notice || error) && (
+        {hasBanner && (
           <div className={error ? 'error-message remote-file-banner' : 'success-message remote-file-banner'}>
-            {error || notice}
+            <div className="remote-file-banner-content">
+              <div className="remote-file-banner-copy">
+                {statusPrimaryMessage && (
+                  <span className="remote-file-banner-primary">{statusPrimaryMessage}</span>
+                )}
+                {statusSecondaryMessage && (
+                  <span className="remote-file-banner-secondary">{statusSecondaryMessage}</span>
+                )}
+              </div>
+              {connectionState === 'error' && (
+                <button type="button" className="btn btn-secondary btn-small" onClick={() => { void handleRetryConnection(); }}>
+                  重试连接
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -651,14 +1071,16 @@ export function RemoteFileManager({
                 <span>大小</span>
                 <span>修改时间</span>
               </div>
-              <div className="remote-file-list" onContextMenu={(event) => openContextMenu(event, null)}>
-                {loading && (
-                  <div className="remote-file-empty">正在读取目录...</div>
+              <div
+                className={`remote-file-list ${loading || isConnectionBusy ? 'is-pending' : ''}`}
+                onContextMenu={(event) => openContextMenu(event, null)}
+              >
+                {entries.length === 0 && !loading && !isConnectionBusy && (
+                  <div className="remote-file-empty">
+                    {connectionState === 'error' ? '连接恢复失败，请点击上方重试连接。' : '这个目录当前没有文件。'}
+                  </div>
                 )}
-                {!loading && entries.length === 0 && (
-                  <div className="remote-file-empty">这个目录当前没有文件。</div>
-                )}
-                {!loading && entries.map((entry) => (
+                {entries.map((entry) => (
                   <button
                     key={entry.path}
                     type="button"
@@ -666,6 +1088,7 @@ export function RemoteFileManager({
                     onClick={() => setSelectedEntryPath(entry.path)}
                     onDoubleClick={() => { void handleEntryDoubleClick(entry); }}
                     onContextMenu={(event) => openContextMenu(event, entry)}
+                    disabled={isRemoteActionDisabled}
                   >
                     <span className="remote-file-name">
                       <span className="remote-file-icon">{isDirectory(entry) ? '📁' : '📄'}</span>
@@ -676,6 +1099,20 @@ export function RemoteFileManager({
                     <span>{formatTimestamp(entry.modifiedAt)}</span>
                   </button>
                 ))}
+                {(loading || isConnectionBusy) && (
+                  <div className="remote-file-list-overlay">
+                    <div className="remote-file-list-overlay-card">
+                      <div className="remote-file-list-overlay-title">
+                        {listOverlayMessage || '正在读取目录...'}
+                      </div>
+                      {listOverlayDetail && (
+                        <div className="remote-file-list-overlay-detail">
+                          {listOverlayDetail}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </section>
@@ -723,14 +1160,14 @@ export function RemoteFileManager({
                 targetEntry,
               });
             }}
-            disabled={!canCopyFile}
+            disabled={!canCopyFile || isConnectionBusy}
           >
             复制文件
           </button>
-          <button type="button" onClick={() => { void handleRenameEntry(); }} disabled={!canManageEntry}>
+          <button type="button" onClick={() => { void handleRenameEntry(); }} disabled={!canManageEntry || isConnectionBusy}>
             重命名
           </button>
-          <button type="button" onClick={() => { void handleDeleteEntry(); }} disabled={!canManageEntry}>
+          <button type="button" onClick={() => { void handleDeleteEntry(); }} disabled={!canManageEntry || isConnectionBusy}>
             删除
           </button>
         </div>
