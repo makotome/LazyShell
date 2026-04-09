@@ -218,6 +218,22 @@ export interface MemoryUsage {
   usePercent: number;
 }
 
+export type RemoteBrowserConnectionState = 'checking' | 'reconnecting' | 'ready' | 'error' | 'manual_required';
+
+export type TerminalConnectionState = 'checking' | 'reconnecting' | 'restoring' | 'ready' | 'error' | 'manual_required';
+
+export type ShellProbeStatus = 'alive' | 'suspect' | 'dead';
+
+export type ShellCommandPhase = 'sent' | 'reconnected_and_sent' | 'ready' | 'reconnected' | 'manual_required' | 'error';
+
+export interface ShellSendResult {
+  delivered: boolean;
+  reconnected: boolean;
+  restoredDirectory: boolean;
+  phase: ShellCommandPhase;
+  message?: string | null;
+}
+
 export interface NetworkStats {
   interface: string;
   rxBytes: number;
@@ -273,8 +289,6 @@ export interface RemoteDirectoryPayload {
   parentPath: string | null;
   entries: RemoteEntry[];
 }
-
-export type RemoteBrowserConnectionState = 'checking' | 'reconnecting' | 'ready' | 'error';
 
 export interface RemoteFileContent {
   path: string;

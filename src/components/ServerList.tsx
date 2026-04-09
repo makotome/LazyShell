@@ -33,7 +33,11 @@ export function ServerList({
     passphrase: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [copiedHost, setCopiedHost] = useState<string | null>(null);
+  const [pendingDeleteServer, setPendingDeleteServer] = useState<ServerInfo | null>(null);
   const isAddFormOpen = addFormOpen ?? internalShowAddForm;
 
   const setAddFormOpen = (open: boolean) => {
@@ -92,7 +96,12 @@ export function ServerList({
 
   const handleRemoveServer = async (serverId: string) => {
     try {
+      setError(null);
       await invoke('remove_server', { serverId });
+      const removedServer = servers.find((server) => server.id === serverId);
+      setSuccess(`服务器“${removedServer?.name || '未命名服务器'}”已删除`);
+      window.setTimeout(() => setSuccess(null), 2200);
+      setPendingDeleteServer(null);
       onServersChange();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove server');
@@ -113,6 +122,19 @@ export function ServerList({
       passphrase: '',
     });
     setAddFormOpen(true);
+  };
+
+  const handleCopyHost = async (host: string) => {
+    try {
+      setError(null);
+      await navigator.clipboard.writeText(host);
+      setCopiedHost(host);
+      window.setTimeout(() => {
+        setCopiedHost((current) => (current === host ? null : current));
+      }, 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '复制主机地址失败');
+    }
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -151,17 +173,30 @@ export function ServerList({
     }
   };
 
+  const filteredServers = useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    if (!keyword) {
+      return servers;
+    }
+
+    return servers.filter((server) =>
+      [server.name, server.host, server.username, String(server.port)]
+        .some((field) => field.toLowerCase().includes(keyword))
+    );
+  }, [searchQuery, servers]);
+
   const groupedServers = useMemo(() => {
     const groups: Record<string, ServerInfo[]> = {};
-    servers.forEach((server) => {
+    filteredServers.forEach((server) => {
       const group = groups[server.host] || [];
       group.push(server);
       groups[server.host] = group;
     });
-    return groups;
-  }, [servers]);
+    return Object.entries(groups).sort(([hostA], [hostB]) => hostA.localeCompare(hostB, 'zh-CN'));
+  }, [filteredServers]);
 
   const formTitle = editingServerId ? '编辑服务器' : '添加服务器';
+  const hasSearchQuery = searchQuery.trim().length > 0;
 
   return (
     <div className="server-list">
@@ -183,9 +218,39 @@ export function ServerList({
         </div>
       )}
 
-      <div className="server-list-hint">可点击服务器卡片，或使用“连接服务器”按钮进入</div>
+      <div className="server-list-hint">支持滚动和搜索，可直接点击卡片，或使用“连接服务器”按钮进入</div>
 
       {error && <div className="error-message">{error}</div>}
+      {success && <div className="success-message">{success}</div>}
+
+      {servers.length > 0 && (
+        <div className="server-list-toolbar">
+          <div className="server-list-search">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜索名称 / 主机 / 用户 / 端口"
+              aria-label="搜索服务器"
+            />
+            {hasSearchQuery && (
+              <button
+                type="button"
+                className="btn btn-icon server-search-clear"
+                onClick={() => setSearchQuery('')}
+                title="清空搜索"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="server-list-summary">
+            {filteredServers.length === servers.length
+              ? `共 ${servers.length} 台`
+              : `显示 ${filteredServers.length} / ${servers.length} 台`}
+          </div>
+        </div>
+      )}
 
       {isAddFormOpen && (
         <div
@@ -345,7 +410,7 @@ export function ServerList({
       )}
 
       <div className="server-groups">
-        {Object.entries(groupedServers).map(([host, hostServers]) => (
+        {groupedServers.map(([host, hostServers]) => (
           <div key={host} className="server-group">
             <div className="server-group-header">
               <span className="server-icon">🖥️</span>
@@ -358,43 +423,65 @@ export function ServerList({
                   className={`server-item ${selectedServer === server.id ? 'selected' : ''}`}
                   onClick={() => onServerSelect(server.id)}
                 >
-                  <div className="server-main">
-                    <span className="server-name">{server.name}</span>
-                    <span className="server-enter-arrow" aria-hidden="true">→</span>
+                  <div className="server-details">
+                    <div className="server-main">
+                      <span className="server-name">{server.name}</span>
+                      <span className="server-user" title={`${server.username}@${server.host}:${server.port}`}>
+                        @{server.username}
+                      </span>
+                      <span className="server-enter-arrow" aria-hidden="true">→</span>
+                    </div>
+                    <div className="server-actions">
+                      <button
+                        type="button"
+                        className={`btn btn-icon server-action-icon server-copy-btn ${copiedHost === server.host ? 'copied' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleCopyHost(server.host);
+                        }}
+                        title={copiedHost === server.host ? '已复制' : '复制主机地址'}
+                        aria-label={copiedHost === server.host ? '已复制主机地址' : '复制主机地址'}
+                      >
+                        {copiedHost === server.host ? '✅' : '📋'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-icon server-action-icon server-connect-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void onServerSelect(server.id);
+                        }}
+                        title="连接服务器"
+                        aria-label="连接服务器"
+                      >
+                        🔌
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-icon server-action-icon server-edit-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditServer(server);
+                        }}
+                        title="编辑"
+                        aria-label="编辑服务器"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-icon server-action-icon server-delete-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPendingDeleteServer(server);
+                        }}
+                        title="删除"
+                        aria-label="删除服务器"
+                      >
+                        🗑️
+                      </button>
                   </div>
-                  <span className="server-user">@{server.username}</span>
-                  <div className="server-actions">
-                    <button
-                      className="btn btn-secondary btn-small server-connect-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void onServerSelect(server.id);
-                      }}
-                      title="连接服务器"
-                    >
-                      连接服务器
-                    </button>
-                    <button
-                      className="btn btn-icon server-action-icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditServer(server);
-                      }}
-                      title="编辑"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      className="btn btn-icon server-action-icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveServer(server.id);
-                      }}
-                      title="删除"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+                </div>
                 </div>
               ))}
             </div>
@@ -407,7 +494,46 @@ export function ServerList({
             <p className="hint">点击下方“添加服务器”开始配置第一台机器</p>
           </div>
         )}
+
+        {servers.length > 0 && filteredServers.length === 0 && (
+          <div className="empty-state">
+            <p>没有匹配的服务器</p>
+            <p className="hint">尝试搜索名称、主机、用户名或端口</p>
+          </div>
+        )}
       </div>
+
+      {pendingDeleteServer && (
+        <div className="modal-overlay" onClick={() => setPendingDeleteServer(null)}>
+          <div className="modal-content server-delete-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>确认删除服务器</h2>
+            </div>
+            <div className="server-delete-modal-body">
+              <p className="server-delete-modal-text">
+                将删除服务器“{pendingDeleteServer.name}”以及相关本地记录，此操作不可撤销。
+              </p>
+              <p className="server-delete-modal-subtext">
+                {pendingDeleteServer.username}@{pendingDeleteServer.host}:{pendingDeleteServer.port}
+              </p>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setPendingDeleteServer(null)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => {
+                    void handleRemoveServer(pendingDeleteServer.id);
+                  }}
+                >
+                  确认删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

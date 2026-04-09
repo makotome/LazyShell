@@ -50,6 +50,9 @@ interface RemoteActionOptions {
 const CONTEXT_MENU_WIDTH = 176;
 const CONTEXT_MENU_ESTIMATED_HEIGHT = 180;
 const CONTEXT_MENU_VIEWPORT_MARGIN = 12;
+const SILENT_RECONNECT_WINDOW_MS = 30 * 60_000;
+const FAST_RECONNECT_ACTION_DELAY_MS = 1_500;
+const AGGRESSIVE_RECONNECT_IDLE_THRESHOLD_MS = 2 * 60_000;
 const SERVER_SESSION_CHECK_TIMEOUT_MS = 2_500;
 const SERVER_RECONNECT_TIMEOUT_MS = 15_000;
 const REMOTE_COMMAND_TIMEOUT_MS = 12_000;
@@ -198,17 +201,24 @@ export function RemoteFileManager({
   const [connectionMessage, setConnectionMessage] = useState('正在检查服务器连接...');
   const [operationLabel, setOperationLabel] = useState<string | null>(null);
   const [showSlowHint, setShowSlowHint] = useState(false);
+  const [showFastReconnectAction, setShowFastReconnectAction] = useState(false);
   const reconnectPromiseRef = useRef<Promise<boolean> | null>(null);
+  const lastInteractionAtRef = useRef(Date.now());
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.path === selectedEntryPath) ?? null,
     [entries, selectedEntryPath]
   );
 
+  const markInteraction = useCallback(() => {
+    lastInteractionAtRef.current = Date.now();
+  }, []);
+
   const ensureServerConnection = useCallback(async (options?: {
     forceReconnect?: boolean;
     checkingMessage?: string;
     reconnectingMessage?: string;
+    preferFastReconnect?: boolean;
   }) => {
     if (reconnectPromiseRef.current) {
       return reconnectPromiseRef.current;
@@ -221,23 +231,32 @@ export function RemoteFileManager({
       setError(null);
 
       if (!options?.forceReconnect) {
-        setConnectionState('checking');
-        setConnectionMessage(checkingMessage);
+        if (Date.now() - lastInteractionAtRef.current > SILENT_RECONNECT_WINDOW_MS) {
+          setConnectionState('manual_required');
+          setConnectionMessage('文件浏览器空闲超过 30 分钟，需要确认恢复连接。');
+          setError('文件浏览器空闲超过 30 分钟，需要确认恢复连接。');
+          return false;
+        }
 
-        try {
-          const alive = await invokeWithTimeout<boolean>(
-            'server_session_is_alive',
-            { serverId },
-            SERVER_SESSION_CHECK_TIMEOUT_MS,
-          );
-          if (alive) {
-            setConnectionState('ready');
-            setConnectionMessage('');
-            return true;
-          }
-        } catch (error) {
-          if (!isConnectionRelatedError(error)) {
-            throw error;
+        if (!options?.preferFastReconnect) {
+          setConnectionState('checking');
+          setConnectionMessage(checkingMessage);
+
+          try {
+            const alive = await invokeWithTimeout<boolean>(
+              'server_session_is_alive',
+              { serverId },
+              SERVER_SESSION_CHECK_TIMEOUT_MS,
+            );
+            if (alive) {
+              setConnectionState('ready');
+              setConnectionMessage('');
+              return true;
+            }
+          } catch (error) {
+            if (!isConnectionRelatedError(error)) {
+              throw error;
+            }
           }
         }
       }
@@ -251,6 +270,7 @@ export function RemoteFileManager({
           { serverId },
           SERVER_RECONNECT_TIMEOUT_MS,
         );
+        markInteraction();
         setConnectionState('ready');
         setConnectionMessage('');
         return true;
@@ -269,7 +289,7 @@ export function RemoteFileManager({
     } finally {
       reconnectPromiseRef.current = null;
     }
-  }, [serverId]);
+  }, [markInteraction, serverId]);
 
   const runRemoteAction = useCallback(async <T,>(
     action: () => Promise<T>,
@@ -281,9 +301,11 @@ export function RemoteFileManager({
 
     try {
       if (!options?.skipConnectionCheck) {
+        const idleDuration = Date.now() - lastInteractionAtRef.current;
         const ready = await ensureServerConnection({
           checkingMessage: options?.checkingMessage,
           reconnectingMessage: options?.reconnectingMessage,
+          preferFastReconnect: idleDuration >= AGGRESSIVE_RECONNECT_IDLE_THRESHOLD_MS,
         });
         if (!ready) {
           throw new Error('连接恢复失败，请稍后重试。');
@@ -300,6 +322,7 @@ export function RemoteFileManager({
           setConnectionState('ready');
           setConnectionMessage('');
           setError(null);
+          markInteraction();
           return result;
         } catch (actionError) {
           if (!options?.retryOnConnectionError || !isConnectionRelatedError(actionError)) {
@@ -335,7 +358,7 @@ export function RemoteFileManager({
         setOperationLabel(null);
       }
     }
-  }, [ensureServerConnection]);
+  }, [ensureServerConnection, markInteraction]);
 
   const loadTreeChildren = useCallback(async (path: string, options?: { skipConnectionCheck?: boolean; silent?: boolean }) => {
     setTreeState((prev) => ({
@@ -510,6 +533,16 @@ export function RemoteFileManager({
     const timer = window.setTimeout(() => setShowSlowHint(true), 3000);
     return () => window.clearTimeout(timer);
   }, [connectionState, loading]);
+
+  useEffect(() => {
+    if (connectionState !== 'checking' && connectionState !== 'reconnecting') {
+      setShowFastReconnectAction(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setShowFastReconnectAction(true), FAST_RECONNECT_ACTION_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [connectionState]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -1032,7 +1065,7 @@ export function RemoteFileManager({
         </div>
 
         {hasBanner && (
-          <div className={error ? 'error-message remote-file-banner' : 'success-message remote-file-banner'}>
+          <div className={(error || connectionState === 'manual_required') ? 'error-message remote-file-banner' : 'success-message remote-file-banner'}>
             <div className="remote-file-banner-content">
               <div className="remote-file-banner-copy">
                 {statusPrimaryMessage && (
@@ -1042,9 +1075,9 @@ export function RemoteFileManager({
                   <span className="remote-file-banner-secondary">{statusSecondaryMessage}</span>
                 )}
               </div>
-              {connectionState === 'error' && (
+              {(connectionState === 'error' || connectionState === 'manual_required' || showFastReconnectAction) && (
                 <button type="button" className="btn btn-secondary btn-small" onClick={() => { void handleRetryConnection(); }}>
-                  重试连接
+                  立即重连
                 </button>
               )}
             </div>

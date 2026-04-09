@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use chrono::Local;
@@ -81,6 +81,19 @@ pub struct SSHConnection {
 const SSH_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const SSH_IO_TIMEOUT: Duration = Duration::from_secs(8);
 const SSH_SESSION_TIMEOUT_MS: u32 = 8_000;
+const SSH_KEEPALIVE_INTERVAL_SECONDS: u32 = 20;
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShellProbeStatus {
+    Alive,
+    Suspect,
+    Dead,
+}
+
+fn configure_session_keepalive(session: &Session) {
+    session.set_keepalive(true, SSH_KEEPALIVE_INTERVAL_SECONDS);
+}
 
 fn connect_authenticated_session(server_config: &ServerConfig) -> Result<Session, SSHError> {
     let address = format!("{}:{}", server_config.host, server_config.port);
@@ -126,6 +139,8 @@ fn connect_authenticated_session(server_config: &ServerConfig) -> Result<Session
     if !session.authenticated() {
         return Err(SSHError::AuthFailed("Authentication failed".to_string()));
     }
+
+    configure_session_keepalive(&session);
 
     Ok(session)
 }
@@ -400,6 +415,7 @@ pub struct SSHConnectionManager {
     persistent_shells: Arc<Mutex<HashMap<String, PersistentShell>>>,
     session_pool: Arc<Mutex<HashMap<String, Arc<Mutex<Session>>>>>,
     session_reconnect_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    shell_operation_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl SSHConnectionManager {
@@ -410,6 +426,7 @@ impl SSHConnectionManager {
             persistent_shells: Arc::new(Mutex::new(HashMap::new())),
             session_pool: Arc::new(Mutex::new(HashMap::new())),
             session_reconnect_locks: Arc::new(Mutex::new(HashMap::new())),
+            shell_operation_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -418,6 +435,15 @@ impl SSHConnectionManager {
         Arc::clone(
             locks
                 .entry(server_id.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
+    }
+
+    pub fn shell_operation_lock(&self, tab_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.shell_operation_locks.lock().unwrap();
+        Arc::clone(
+            locks
+                .entry(tab_id.to_string())
                 .or_insert_with(|| Arc::new(Mutex::new(()))),
         )
     }
@@ -547,6 +573,19 @@ impl SSHConnectionManager {
     pub fn is_persistent_shell_alive(&self, id: &str) -> bool {
         let shells = self.persistent_shells.lock().unwrap();
         shells.get(id).map(|s| s.is_alive()).unwrap_or(false)
+    }
+
+    pub fn probe_persistent_shell(&self, id: &str, rows: u16, cols: u16) -> ShellProbeStatus {
+        let mut shells = self.persistent_shells.lock().unwrap();
+        shells.get_mut(id).map(|s| s.probe(rows, cols)).unwrap_or(ShellProbeStatus::Dead)
+    }
+
+    pub fn persistent_shell_has_stalled_interaction(&self, id: &str) -> bool {
+        let shells = self.persistent_shells.lock().unwrap();
+        shells
+            .get(id)
+            .map(|s| s.classify_stalled_interaction().is_some())
+            .unwrap_or(true)
     }
 
     /// Resize a persistent shell
@@ -730,11 +769,19 @@ pub struct PersistentShell {
     channel: Channel,
     server_config: ServerConfig,
     pty_active: bool,
+    empty_read_streak: usize,
+    last_read_success_at: Instant,
+    last_write_at: Option<Instant>,
+    unanswered_write_count: usize,
 }
 
 impl PersistentShell {
     const WRITE_RETRY_LIMIT: usize = 32;
     const WRITE_RETRY_DELAY_US: u64 = 500;
+    const STALLED_WRITE_SUSPECT_THRESHOLD: usize = 3;
+    const STALLED_WRITE_DEAD_THRESHOLD: usize = 8;
+    const STALLED_WRITE_SUSPECT_SILENCE: Duration = Duration::from_millis(400);
+    const STALLED_WRITE_DEAD_SILENCE: Duration = Duration::from_millis(1200);
 
     fn is_recoverable_flow_error(err: &std::io::Error) -> bool {
         if err.kind() == std::io::ErrorKind::WouldBlock
@@ -802,6 +849,10 @@ impl PersistentShell {
             channel,
             server_config,
             pty_active: true,
+            empty_read_streak: 0,
+            last_read_success_at: Instant::now(),
+            last_write_at: None,
+            unanswered_write_count: 0,
         })
     }
 
@@ -811,6 +862,14 @@ impl PersistentShell {
             return Err(SSHError::NotConnected);
         }
 
+        let start = std::time::Instant::now();
+        eprintln!(
+            "[persistent-shell:{}] write start len={} pty_active={} eof={}",
+            self.server_config.id,
+            data.len(),
+            self.pty_active,
+            self.channel.eof()
+        );
         let bytes = data.as_bytes();
         let mut written = 0usize;
         let mut retries = 0usize;
@@ -829,9 +888,23 @@ impl PersistentShell {
                 }
                 Err(e) if Self::is_recoverable_flow_error(&e) => {
                     self.pty_active = false;
+                    eprintln!(
+                        "[persistent-shell:{}] write recoverable-error elapsed_ms={} err={}",
+                        self.server_config.id,
+                        start.elapsed().as_millis(),
+                        e
+                    );
                     return Err(SSHError::NotConnected);
                 }
-                Err(e) => return Err(SSHError::IoError(e.to_string())),
+                Err(e) => {
+                    eprintln!(
+                        "[persistent-shell:{}] write io-error elapsed_ms={} err={}",
+                        self.server_config.id,
+                        start.elapsed().as_millis(),
+                        e
+                    );
+                    return Err(SSHError::IoError(e.to_string()));
+                }
             }
 
             if written >= bytes.len() {
@@ -839,12 +912,27 @@ impl PersistentShell {
             }
 
             if retries >= Self::WRITE_RETRY_LIMIT {
+                eprintln!(
+                    "[persistent-shell:{}] write timeout elapsed_ms={} written={} retries={}",
+                    self.server_config.id,
+                    start.elapsed().as_millis(),
+                    written,
+                    retries
+                );
                 return Err(SSHError::IoError("Timed out while writing full PTY input".to_string()));
             }
 
             std::thread::sleep(Duration::from_micros(Self::WRITE_RETRY_DELAY_US));
         }
 
+        eprintln!(
+            "[persistent-shell:{}] write ok elapsed_ms={} written={}",
+            self.server_config.id,
+            start.elapsed().as_millis(),
+            written
+        );
+        self.last_write_at = Some(Instant::now());
+        self.unanswered_write_count = self.unanswered_write_count.saturating_add(1);
         Ok(())
     }
 
@@ -854,19 +942,165 @@ impl PersistentShell {
             return Err(SSHError::NotConnected);
         }
         match self.channel.read(buf) {
-            Ok(n) => Ok(n),
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
+            Ok(0) => {
+                self.empty_read_streak += 1;
+                if self.empty_read_streak == 1
+                    || self.empty_read_streak == 30
+                    || self.empty_read_streak == 150
+                    || self.empty_read_streak % 600 == 0
+                {
+                    eprintln!(
+                        "[persistent-shell:{}] read empty-streak={} pty_active={} eof={} authenticated={}",
+                        self.server_config.id,
+                        self.empty_read_streak,
+                        self.pty_active,
+                        self.channel.eof(),
+                        self.session.authenticated(),
+                    );
+                }
+                Ok(0)
+            }
+            Ok(n) => {
+                if self.empty_read_streak > 0 {
+                    eprintln!(
+                        "[persistent-shell:{}] read data-after-empty-streak streak={} bytes={} eof={}",
+                        self.server_config.id,
+                        self.empty_read_streak,
+                        n,
+                        self.channel.eof(),
+                    );
+                }
+                self.empty_read_streak = 0;
+                self.last_read_success_at = Instant::now();
+                self.unanswered_write_count = 0;
+                Ok(n)
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                self.empty_read_streak += 1;
+                if self.empty_read_streak == 1
+                    || self.empty_read_streak == 30
+                    || self.empty_read_streak == 150
+                    || self.empty_read_streak % 600 == 0
+                {
+                    eprintln!(
+                        "[persistent-shell:{}] read would-block-streak={} pty_active={} eof={} authenticated={}",
+                        self.server_config.id,
+                        self.empty_read_streak,
+                        self.pty_active,
+                        self.channel.eof(),
+                        self.session.authenticated(),
+                    );
+                }
+                Ok(0)
+            }
             Err(e) if Self::is_recoverable_flow_error(&e) => {
                 self.pty_active = false;
+                eprintln!(
+                    "[persistent-shell:{}] read recoverable-error empty_streak={} err={}",
+                    self.server_config.id,
+                    self.empty_read_streak,
+                    e
+                );
                 Err(SSHError::NotConnected)
             }
-            Err(e) => Err(SSHError::IoError(e.to_string())),
+            Err(e) => {
+                eprintln!(
+                    "[persistent-shell:{}] read io-error empty_streak={} err={}",
+                    self.server_config.id,
+                    self.empty_read_streak,
+                    e
+                );
+                Err(SSHError::IoError(e.to_string()))
+            }
         }
     }
 
     /// Check if the shell session is still alive
     pub fn is_alive(&self) -> bool {
         self.pty_active && !self.channel.eof()
+    }
+
+    fn classify_stalled_interaction(&self) -> Option<ShellProbeStatus> {
+        let last_write_at = self.last_write_at?;
+        if self.unanswered_write_count == 0 {
+            return None;
+        }
+
+        let now = Instant::now();
+        let silence_since_read = now.saturating_duration_since(self.last_read_success_at);
+        let silence_since_write = now.saturating_duration_since(last_write_at);
+
+        if self.unanswered_write_count >= Self::STALLED_WRITE_DEAD_THRESHOLD
+            && silence_since_read >= Self::STALLED_WRITE_DEAD_SILENCE
+            && silence_since_write >= Duration::from_millis(150)
+        {
+            return Some(ShellProbeStatus::Dead);
+        }
+
+        if self.unanswered_write_count >= Self::STALLED_WRITE_SUSPECT_THRESHOLD
+            && silence_since_read >= Self::STALLED_WRITE_SUSPECT_SILENCE
+        {
+            return Some(ShellProbeStatus::Suspect);
+        }
+
+        None
+    }
+
+    pub fn probe(&mut self, rows: u16, cols: u16) -> ShellProbeStatus {
+        if !self.pty_active || self.channel.eof() || !self.session.authenticated() {
+            return ShellProbeStatus::Dead;
+        }
+
+        if let Some(status) = self.classify_stalled_interaction() {
+            let now = Instant::now();
+            eprintln!(
+                "[persistent-shell:{}] probe stalled-interaction status={status:?} unanswered_writes={} empty_read_streak={} since_last_read_ms={} since_last_write_ms={}",
+                self.server_config.id,
+                self.unanswered_write_count,
+                self.empty_read_streak,
+                now.saturating_duration_since(self.last_read_success_at).as_millis(),
+                self.last_write_at
+                    .map(|ts| now.saturating_duration_since(ts).as_millis())
+                    .unwrap_or(0),
+            );
+            if matches!(status, ShellProbeStatus::Dead) {
+                self.pty_active = false;
+            }
+            return status;
+        }
+
+        match self.resize(rows, cols) {
+            Ok(_) => match self.session.keepalive_send() {
+                Ok(_) => ShellProbeStatus::Alive,
+                Err(err) => {
+                    let message = err.to_string().to_lowercase();
+                    if message.contains("transport")
+                        || message.contains("socket disconnected")
+                        || message.contains("channel closed")
+                        || message.contains("broken pipe")
+                        || message.contains("eof")
+                    {
+                        self.pty_active = false;
+                        ShellProbeStatus::Dead
+                    } else {
+                        ShellProbeStatus::Suspect
+                    }
+                }
+            },
+            Err(err) => {
+                let message = err.to_string().to_lowercase();
+                if message.contains("transport")
+                    || message.contains("socket disconnected")
+                    || message.contains("channel closed")
+                    || message.contains("eof")
+                {
+                    self.pty_active = false;
+                    ShellProbeStatus::Dead
+                } else {
+                    ShellProbeStatus::Suspect
+                }
+            }
+        }
     }
 
     /// Resize the PTY terminal
@@ -921,6 +1155,10 @@ impl PersistentShell {
         self.session = session;
         self.channel = channel;
         self.pty_active = true;
+        self.empty_read_streak = 0;
+        self.last_read_success_at = Instant::now();
+        self.last_write_at = None;
+        self.unanswered_write_count = 0;
         Ok(())
     }
 

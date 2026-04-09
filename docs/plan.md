@@ -514,11 +514,80 @@ AI 部分已经具备产品化接口而不是简单调用 API：
 5. 已修复多 tab 切换时误清理 shell session、后台 tab 干扰前台会话导致的断连、卡顿与欢迎信息重复问题
 6. 已修复终端舞台层叠命中问题，避免后开的 tab 覆盖先开的 tab 导致“看起来像卡死”
 7. 重连动作现在会先清屏再重建会话，减少旧失效画面和新会话内容混杂
+8. 已确认一个新的终端主线稳定性问题：SSH/PTTY 在长时间空闲后可能进入“假活”状态，相关原因和现状见下文“终端假活问题记录”
 
 理由：
 
 - 这是整个产品体验的地基
 - 终端路线长期并存会拖累所有上层能力，包括 AI、历史、状态同步
+
+### 终端假活问题记录
+
+这个问题已经稳定复现，且根因范围已经明显收敛，后续需要继续沿当前主线修，不要再回到前端渲染方向猜测。
+
+现象：
+
+1. 终端在前台或后台空闲数分钟后回到页面，状态仍显示 `ready`
+2. 用户输入字符或连续按回车时，前端 `send-input` 很快完成，看起来输入已发出
+3. 终端在 5 到 10 秒甚至更久时间内没有任何新输出
+4. 更晚一些时候才出现真正断线、重建 shell、重复欢迎信息和 prompt 刷新
+
+已经确认排除的方向：
+
+- 不是前端 xterm 没渲染
+- 不是轮询没跑
+- 不是输入没有送到后端
+- 不是单纯的 UI 状态提示问题
+
+已确认的根因：
+
+- 底层 `PersistentShell` 可能进入一种“假活”状态：
+  - `write()` 仍然成功
+  - `session.authenticated()` 仍为真
+  - `pty_active=true`
+  - `channel.eof()==false`
+  - 但 `read()` 长时间只返回 `WouldBlock`
+- 当前 `probe()` 过去主要依赖 `resize + keepalive_send` 判活，这不足以识别“能写但已经读不出有效回显”的 PTY
+- 因此会出现：前端和后端都暂时认为连接还活着，但用户实际无法交互
+
+本轮已完成的定位和改动现状：
+
+1. 已去掉前端高频 `output:*` 调试日志，保留连接状态和输入链路日志
+2. 已在 `src-tauri/src/ssh.rs` 的 `PersistentShell::read()` / `write()` 增加空读、`WouldBlock`、恢复、传输错误日志
+3. 已确认一次典型故障路径：
+   - 空闲后 `read would-block-streak` 持续增长到数千次
+   - 首次 idle probe 仍返回 `Alive`
+   - 后续连续输入期间 `write ok`
+   - 但一直没有输出
+   - 最终才在 `read recoverable-error ... transport read` 时真正进入重连
+4. 已增加“连续无回显写入”判定，并接入 `prepare_shell_session`
+5. 但当前版本仍未完全解决，用户反馈是：卡顿感比之前更明显，说明修复入口虽然更接近根因，但触发时机和阈值仍需继续调整
+
+当前实现的关键事实：
+
+- `Terminal.tsx` 的连续输入主路径会频繁调用 `shell_send_input_resilient`
+- 是否重建 shell 取决于 `prepare_shell_session`
+- 因此真正该修的入口仍然是：
+  - `src-tauri/src/commands.rs` 里的 `prepare_shell_session`
+  - `src-tauri/src/ssh.rs` 里的 `PersistentShell::probe()` 与“stalled interaction”判定
+
+稳定复现方法：
+
+1. 正常连接服务器并进入终端
+2. 保持标签页或窗口空闲约 4 到 5 分钟
+3. 回到终端后连续输入字符或连续按回车
+4. 观察是否出现：
+   - 前端 `send-input:invoke-completed` 很快结束
+   - 后端 `write ok`
+   - 同时 `read would-block-streak` 持续增加
+   - 很晚才出现 `transport read`
+
+下次继续修时应优先做的事：
+
+1. 继续沿 `PersistentShell` 假活识别这条线，不要回退到前端层面做表面修补
+2. 重点检查“连续输入期间为什么仍会长期 `probe_result=Alive`”
+3. 优先优化“stalled interaction”进入 `Suspect/Dead` 的时机，而不是继续增加提示文案
+4. 如果需要更多证据，优先补 `probe()` 判定日志，不要再恢复前端输出刷屏日志
 
 ### 第三阶段: 补齐持久化工作台能力
 

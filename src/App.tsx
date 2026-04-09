@@ -39,7 +39,19 @@ function normalizePosixPath(path: string): string {
   return joined ? `/${joined}` : '/';
 }
 
-function resolveNextDirectory(command: string, currentDir: string, previousDir?: string): { currentDir: string; previousDir?: string } | null {
+function inferHomeDirectory(username?: string): string {
+  if (!username) {
+    return '/';
+  }
+  return username === 'root' ? '/root' : `/home/${username}`;
+}
+
+function resolveNextDirectory(
+  command: string,
+  currentDir: string,
+  previousDir?: string,
+  homeDir?: string,
+): { currentDir: string; previousDir?: string } | null {
   const trimmed = command.trim();
   if (!trimmed) {
     return null;
@@ -51,12 +63,15 @@ function resolveNextDirectory(command: string, currentDir: string, previousDir?:
 
   const resolveTarget = (value: string) => {
     if (!value || value === '~') {
-      return '/';
+      return homeDir || '/';
     }
     if (value.startsWith('/')) {
       return normalizePosixPath(value);
     }
-    return normalizePosixPath(`${currentDir}/${value}`);
+    const baseDir = currentDir === '/' && previousDir === undefined && homeDir
+      ? homeDir
+      : currentDir;
+    return normalizePosixPath(`${baseDir}/${value}`);
   };
 
   if (head === 'cd') {
@@ -332,7 +347,7 @@ function App() {
               userIntent: naturalLanguage,
               suggestedCommand: command,
               finalCommand: command,
-              currentDir: activeTab.currentDir,
+      currentDir: activeTab.currentDir,
               stdout: result.output.stdout,
               stderr: result.output.stderr,
               exitCode: result.output.exit_code,
@@ -345,7 +360,8 @@ function App() {
         }
 
         // Update current directory if the command changed it
-        const nextDirectory = resolveNextDirectory(command, activeTab.currentDir, activeTab.previousDir);
+        const serverHomeDir = inferHomeDirectory(activeServerInfo?.username);
+        const nextDirectory = resolveNextDirectory(command, activeTab.currentDir, activeTab.previousDir, serverHomeDir);
         if (nextDirectory) {
           setTabs(prev => prev.map(t =>
             t.id === activeTab.id ? { ...t, ...nextDirectory } : t
@@ -380,13 +396,48 @@ function App() {
 
     appendHistoryEntry(activeTab.id, activeTab.serverId, historyEntry);
 
-    const nextDirectory = resolveNextDirectory(command, activeTab.currentDir, activeTab.previousDir);
+    const serverHomeDir = inferHomeDirectory(activeServerInfo?.username);
+    const nextDirectory = resolveNextDirectory(command, activeTab.currentDir, activeTab.previousDir, serverHomeDir);
     if (nextDirectory) {
       setTabs(prev => prev.map(t =>
         t.id === activeTab.id ? { ...t, ...nextDirectory } : t
       ));
     }
-  }, [activeTab, activeTabId, appendHistoryEntry]);
+  }, [activeServerInfo?.username, activeTab, activeTabId, appendHistoryEntry]);
+
+  const handleTerminalCommandEntered = useCallback((tabId: string, command: string) => {
+    setTabs(prev => prev.map((tab) => {
+      if (tab.id !== tabId) {
+        return tab;
+      }
+
+      const server = servers.find((item) => item.id === tab.serverId);
+      const serverHomeDir = inferHomeDirectory(server?.username);
+      const nextDirectory = resolveNextDirectory(command, tab.currentDir, tab.previousDir, serverHomeDir);
+      if (!nextDirectory) {
+        return tab;
+      }
+
+      return {
+        ...tab,
+        ...nextDirectory,
+      };
+    }));
+  }, [servers]);
+
+  const handleTerminalDirectoryResolved = useCallback((tabId: string, path: string) => {
+    setTabs(prev => prev.map((tab) => {
+      if (tab.id !== tabId || tab.currentDir === path) {
+        return tab;
+      }
+
+      return {
+        ...tab,
+        previousDir: tab.currentDir,
+        currentDir: path,
+      };
+    }));
+  }, []);
 
   const reloadActiveCommandHistory = useCallback(async () => {
     if (!activeTab) return;
@@ -442,7 +493,7 @@ function App() {
       id: `tab-${Date.now()}`,
       serverId: server.id,
       serverName: server.name,
-      currentDir: '/',
+      currentDir: inferHomeDirectory(server.username),
       previousDir: undefined,
     };
 
@@ -595,7 +646,6 @@ function App() {
               serverHost={activeServerInfo?.host || null}
             />
           </div>
-          <div className="sidebar-spacer" />
           <div className="sidebar-list-section">
             <button
               className={`sidebar-section-header sidebar-section-toggle ${isServerListExpanded ? 'expanded' : ''}`}
@@ -610,10 +660,7 @@ function App() {
               <ServerList
                 servers={servers}
                 selectedServer={activeTab?.serverId || null}
-                onServerSelect={(serverId) => {
-                  handleServerSelect(serverId);
-                  setIsServerListExpanded(false);
-                }}
+                onServerSelect={handleServerSelect}
                 onServersChange={fetchServers}
                 showHeader={false}
                 addFormOpen={isServerFormOpen}
@@ -664,10 +711,13 @@ function App() {
                   tabId={tab.id}
                   serverId={tab.serverId}
                   serverName={tab.serverName}
+                  serverUsername={servers.find(server => server.id === tab.serverId)?.username}
                   currentDir={tab.currentDir}
                   isActive={tab.id === activeTabId}
                   pendingAiExecution={pendingAiExecutions[tab.id]}
                   onPendingAiExecutionConsumed={handlePendingAiExecutionConsumed}
+                  onCommandEntered={handleTerminalCommandEntered}
+                  onDirectoryResolved={handleTerminalDirectoryResolved}
                 />
               ))}
             </div>

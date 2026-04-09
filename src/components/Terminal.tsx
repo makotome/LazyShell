@@ -5,34 +5,65 @@ import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { openFileBrowserWindow } from '../utils/remoteWindows';
-import type { PendingAiTerminalExecution } from '../types';
+import type { PendingAiTerminalExecution, ShellSendResult, TerminalConnectionState } from '../types';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
   tabId: string;
   serverId: string;
   serverName: string;
+  serverUsername?: string;
   currentDir: string;
   isActive: boolean;
   pendingAiExecution?: PendingAiTerminalExecution | null;
   onPendingAiExecutionConsumed?: (tabId: string, executionId: string) => void;
+  onCommandEntered?: (tabId: string, command: string) => void;
+  onDirectoryResolved?: (tabId: string, path: string) => void;
 }
 
 const FEEDBACK_BEGIN = '__LS_AI_BEGIN__';
 const FEEDBACK_END = '__LS_AI_END__';
 const MARKER_TAIL_LENGTH = 160;
+const SILENT_RECONNECT_WINDOW_MS = 30 * 60_000;
+const FAST_RECONNECT_ACTION_DELAY_MS = 1_500;
+const WINDOW_RESUME_PROBE_THRESHOLD_MS = 2 * 60_000;
+const IDLE_INPUT_PROBE_THRESHOLD_MS = 3 * 60_000;
+const INPUT_RESPONSE_CHECK_DELAY_MS = 250;
+const INPUT_RESPONSE_RECOVERY_DELAY_MS = 1200;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
+function resolvePromptPath(path: string, username?: string): string {
+  if (path === '~') {
+    return username === 'root' ? '/root' : username ? `/home/${username}` : '/';
+  }
+
+  if (path.startsWith('~/')) {
+    const homeDir = username === 'root' ? '/root' : username ? `/home/${username}` : '';
+    return homeDir ? `${homeDir}/${path.slice(2)}` : path;
+  }
+
+  return path;
+}
 
 export function Terminal({
   tabId,
   serverId,
   serverName,
+  serverUsername,
   currentDir,
   isActive,
   pendingAiExecution,
   onPendingAiExecutionConsumed,
+  onCommandEntered,
+  onDirectoryResolved,
 }: TerminalProps) {
-  const BACKGROUND_RECONNECT_THRESHOLD_MS = 60_000;
-  const ACTIVE_IDLE_RECONNECT_THRESHOLD_MS = 5 * 60_000;
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -46,6 +77,11 @@ export function Terminal({
   const pendingOutputRef = useRef('');
   const flushScheduledRef = useRef(false);
   const lastActivityAtRef = useRef(Date.now());
+  const lastUserInteractionAtRef = useRef(Date.now());
+  const lastWindowInactiveAtRef = useRef<number | null>(null);
+  const connectionStateRef = useRef<TerminalConnectionState>('ready');
+  const queuedInputRef = useRef('');
+  const commandLineBufferRef = useRef('');
   const reconnectPromptRef = useRef<null | {
     reason: 'background_timeout' | 'idle_timeout' | 'connection_error';
     message: string;
@@ -64,6 +100,28 @@ export function Terminal({
     reason: 'background_timeout' | 'idle_timeout' | 'connection_error';
     message: string;
   }>(null);
+  const [connectionState, setConnectionState] = useState<TerminalConnectionState>('ready');
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [showFastReconnectAction, setShowFastReconnectAction] = useState(false);
+
+  const writeRecoveryBoundary = useCallback(() => {
+    const terminal = xtermRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    terminal.write('\r\n');
+  }, []);
+
+  const debugTerminal = useCallback((event: string, details?: Record<string, unknown>) => {
+    console.debug(`[Terminal:${tabId}] ${event}`, {
+      at: new Date().toISOString(),
+      connectionState: connectionStateRef.current,
+      recovering: recoveringSessionRef.current,
+      queuedInputLength: queuedInputRef.current.length,
+      ...details,
+    });
+  }, [tabId]);
 
   useEffect(() => {
     isActiveRef.current = isActive;
@@ -84,12 +142,80 @@ export function Terminal({
   }, [isActive]);
 
   useEffect(() => {
+    const markWindowInactive = () => {
+      lastWindowInactiveAtRef.current = Date.now();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        markWindowInactive();
+      }
+    };
+
+    window.addEventListener('blur', markWindowInactive);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('blur', markWindowInactive);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
     reconnectPromptRef.current = reconnectPrompt;
   }, [reconnectPrompt]);
 
   useEffect(() => {
     pendingAiExecutionRef.current = pendingAiExecution || null;
   }, [pendingAiExecution]);
+
+  useEffect(() => {
+    connectionStateRef.current = connectionState;
+    debugTerminal('connection-state-changed', {
+      nextState: connectionState,
+      message: connectionMessage,
+    });
+  }, [connectionMessage, connectionState, debugTerminal]);
+
+  useEffect(() => {
+    if (connectionState !== 'checking' && connectionState !== 'reconnecting') {
+      setShowFastReconnectAction(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowFastReconnectAction(true);
+    }, FAST_RECONNECT_ACTION_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [connectionState]);
+
+  const markInteraction = useCallback(() => {
+    const now = Date.now();
+    lastUserInteractionAtRef.current = now;
+    lastActivityAtRef.current = now;
+  }, []);
+
+  const clearConnectionUi = useCallback(() => {
+    setConnectionState('ready');
+    setConnectionMessage(null);
+    setReconnectPrompt(null);
+  }, []);
+
+  const requireManualReconnect = useCallback((reason: 'background_timeout' | 'idle_timeout' | 'connection_error', message: string) => {
+    setConnectionState('manual_required');
+    setConnectionMessage(message);
+    setReconnectPrompt({ reason, message });
+  }, []);
+
+  const canSilentReconnect = useCallback((inactiveDuration?: number) => {
+    if (typeof inactiveDuration === 'number' && inactiveDuration > SILENT_RECONNECT_WINDOW_MS) {
+      return false;
+    }
+    return Date.now() - lastUserInteractionAtRef.current <= SILENT_RECONNECT_WINDOW_MS;
+  }, []);
 
   const isRecoverableShellError = useCallback((err: unknown) => {
     const message = String(err);
@@ -103,131 +229,307 @@ export function Terminal({
     );
   }, []);
 
-  const ensureSession = useCallback(async () => {
+  const flushQueuedInput = useCallback(async () => {
+    if (!queuedInputRef.current) {
+      return;
+    }
+
+    const queued = queuedInputRef.current;
+    queuedInputRef.current = '';
+    setConnectionState('restoring');
+    setConnectionMessage('终端已恢复，正在补发你刚才的输入...');
+    try {
+      const { rows, cols } = terminalSizeRef.current;
+      const result = await invoke<ShellSendResult>('shell_send_input_resilient', {
+        serverId,
+        tabId,
+        rows,
+        cols,
+        currentDir,
+        idleDurationMs: 0,
+        data: queued,
+      });
+      if (result.reconnected) {
+        writeRecoveryBoundary();
+      }
+    } catch (err) {
+      if (isRecoverableShellError(err)) {
+        queuedInputRef.current = queued + queuedInputRef.current;
+        requireManualReconnect('connection_error', '终端恢复后补发输入失败，请手动重连。');
+        return;
+      }
+      console.error(err);
+    }
+  }, [currentDir, isRecoverableShellError, requireManualReconnect, serverId, tabId, writeRecoveryBoundary]);
+
+  const ensureSession = useCallback(async (statusMessage = '终端连接已断开，正在重新建立 SSH 会话...') => {
     if (recoveringSessionRef.current) {
       return false;
     }
 
     recoveringSessionRef.current = true;
     const { rows, cols } = terminalSizeRef.current;
+    setConnectionState('reconnecting');
+    setConnectionMessage(statusMessage);
 
     try {
-      await invoke('close_shell_session', { tabId }).catch(() => {});
-      await invoke('create_shell_session', {
+      const result = await invoke<ShellSendResult>('shell_prepare_session_resilient', {
         serverId,
         tabId,
         rows,
         cols,
+        currentDir,
+        idleDurationMs: 0,
       });
-      lastActivityAtRef.current = Date.now();
+      if (result.reconnected) {
+        writeRecoveryBoundary();
+      }
+      pendingOutputRef.current = '';
+      flushScheduledRef.current = false;
+      markInteraction();
+      await flushQueuedInput();
+      clearConnectionUi();
       return true;
     } catch (err) {
       console.error('Failed to recreate shell session:', err);
+      setConnectionState('error');
+      setConnectionMessage('终端恢复失败，请手动重连。');
       return false;
     } finally {
       recoveringSessionRef.current = false;
     }
-  }, [serverId, tabId]);
+  }, [clearConnectionUi, currentDir, flushQueuedInput, markInteraction, serverId, tabId, writeRecoveryBoundary]);
 
-  const sendInput = useCallback((data: string) => {
+  const recoverTerminalConnection = useCallback(async (options?: {
+    inactiveDuration?: number;
+    checkingMessage?: string;
+    reconnectingMessage?: string;
+    manualReason?: 'background_timeout' | 'idle_timeout' | 'connection_error';
+    manualMessage?: string;
+  }) => {
+    if (recoveringSessionRef.current) {
+      return false;
+    }
+
+    const manualReason = options?.manualReason ?? 'connection_error';
+    const manualMessage = options?.manualMessage ?? '终端连接已失效，请手动重连后继续使用。';
+
+    if (!canSilentReconnect(options?.inactiveDuration)) {
+      requireManualReconnect(manualReason, manualMessage);
+      return false;
+    }
+
+    setConnectionState('checking');
+    setConnectionMessage(options?.checkingMessage ?? '正在检查终端连接...');
+
+    try {
+      const { rows, cols } = terminalSizeRef.current;
+      await invoke<ShellSendResult>('shell_prepare_session_resilient', {
+        serverId,
+        tabId,
+        rows,
+        cols,
+        currentDir,
+        idleDurationMs: typeof options?.inactiveDuration === 'number'
+          ? Math.max(0, Math.round(options.inactiveDuration))
+          : 0,
+      });
+      clearConnectionUi();
+      return true;
+    } catch (err) {
+      if (!isRecoverableShellError(err)) {
+        console.error('Failed to probe shell connection:', err);
+      }
+    }
+    const recovered = await ensureSession(options?.reconnectingMessage);
+    if (!recovered) {
+      requireManualReconnect('connection_error', '终端恢复失败，请手动重连后继续使用。');
+      return false;
+    }
+    return true;
+  }, [canSilentReconnect, clearConnectionUi, currentDir, ensureSession, isRecoverableShellError, requireManualReconnect, serverId, tabId]);
+
+  const sendInput = useCallback(async (data: string) => {
+    debugTerminal('send-input:start', {
+      dataPreview: JSON.stringify(data.slice(0, 40)),
+      dataLength: data.length,
+    });
+
     if (reconnectPrompt) {
+      debugTerminal('send-input:blocked-by-manual-reconnect');
       return;
     }
 
-    const idleDuration = Date.now() - lastActivityAtRef.current;
-    if (idleDuration > ACTIVE_IDLE_RECONNECT_THRESHOLD_MS) {
-      setReconnectPrompt({
-        reason: 'idle_timeout',
-        message: '终端长时间空闲后可能已失效，请先手动重连。',
+    if (
+      connectionStateRef.current === 'checking'
+      || connectionStateRef.current === 'reconnecting'
+      || connectionStateRef.current === 'restoring'
+    ) {
+      queuedInputRef.current += data;
+      setConnectionMessage((current) => current ?? '终端正在恢复连接，输入会在恢复后自动补发...');
+      debugTerminal('send-input:queued-during-recovery', {
+        addedLength: data.length,
+        nextQueueLength: queuedInputRef.current.length,
       });
       return;
     }
 
-    invoke('shell_input', { tabId, data }).catch(async (err) => {
-      if (isRecoverableShellError(err)) {
-        setReconnectPrompt({
-          reason: 'connection_error',
-          message: '终端连接已失效，请手动重连后继续操作。',
+    const idleDuration = Date.now() - lastUserInteractionAtRef.current;
+    if (idleDuration > SILENT_RECONNECT_WINDOW_MS) {
+      debugTerminal('send-input:blocked-by-idle-timeout', { idleDuration });
+      requireManualReconnect('idle_timeout', '终端空闲超过 30 分钟，需要确认恢复连接。');
+      return;
+    }
+
+    if (idleDuration >= IDLE_INPUT_PROBE_THRESHOLD_MS) {
+      debugTerminal('send-input:idle-preflight-probe', { idleDuration });
+      queuedInputRef.current += data;
+      setConnectionState('checking');
+      setConnectionMessage('终端空闲较久，正在确认连接状态...');
+      try {
+        const { rows, cols } = terminalSizeRef.current;
+        const result = await invoke<ShellSendResult>('shell_send_input_resilient', {
+          serverId,
+          tabId,
+          rows,
+          cols,
+          currentDir,
+          idleDurationMs: Math.max(0, Math.round(idleDuration)),
+          data: queuedInputRef.current,
         });
+        if (result.reconnected) {
+          writeRecoveryBoundary();
+        }
+        queuedInputRef.current = '';
+      } catch (err) {
+        if (isRecoverableShellError(err)) {
+          requireManualReconnect('connection_error', '终端连接恢复失败，请手动重连后继续操作。');
+          return;
+        }
+        console.error(err);
+        return;
+      }
+      markInteraction();
+      clearConnectionUi();
+      debugTerminal('send-input:idle-preflight-complete', {
+        queueLength: queuedInputRef.current.length,
+      });
+      return;
+    }
+
+    markInteraction();
+
+    let settled = false;
+
+    const slowInputTimer = window.setTimeout(() => {
+      if (settled || reconnectPromptRef.current || recoveringSessionRef.current) {
+        debugTerminal('send-input:slow-timer-suppressed', {
+          settled,
+          hasManualPrompt: Boolean(reconnectPromptRef.current),
+          recovering: recoveringSessionRef.current,
+        });
+        return;
+      }
+
+      debugTerminal('send-input:slow-timer-fired');
+      setConnectionState('checking');
+      setConnectionMessage('终端输入没有及时响应，正在确认连接状态...');
+
+      debugTerminal('send-input:slow-timer-ui-only');
+    }, INPUT_RESPONSE_CHECK_DELAY_MS);
+
+    const recoveryHintTimer = window.setTimeout(() => {
+      if (settled || reconnectPromptRef.current || recoveringSessionRef.current) {
+        debugTerminal('send-input:recovery-hint-suppressed', {
+          settled,
+          hasManualPrompt: Boolean(reconnectPromptRef.current),
+          recovering: recoveringSessionRef.current,
+        });
+        return;
+      }
+
+      debugTerminal('send-input:recovery-hint-fired');
+      setConnectionState('reconnecting');
+      setConnectionMessage('终端输入仍未响应，正在尝试恢复连接...');
+    }, INPUT_RESPONSE_RECOVERY_DELAY_MS);
+
+    const { rows, cols } = terminalSizeRef.current;
+    await invoke<ShellSendResult>('shell_send_input_resilient', {
+      serverId,
+      tabId,
+      rows,
+      cols,
+      currentDir,
+      idleDurationMs: 0,
+      data,
+    }).catch(async (err) => {
+      debugTerminal('send-input:invoke-error', { error: String(err) });
+      settled = true;
+      window.clearTimeout(slowInputTimer);
+      window.clearTimeout(recoveryHintTimer);
+
+      if (isRecoverableShellError(err)) {
+        const recovered = await recoverTerminalConnection({
+          reconnectingMessage: '终端连接已断开，正在重新建立 SSH 会话...',
+        });
+        if (recovered) {
+          await invoke('shell_input', { tabId, data }).catch((retryErr) => {
+            if (isRecoverableShellError(retryErr)) {
+              requireManualReconnect('connection_error', '终端恢复失败，请手动重连后继续操作。');
+              return;
+            }
+            console.error(retryErr);
+          });
+        }
         return;
       }
       console.error(err);
     });
-  }, [ACTIVE_IDLE_RECONNECT_THRESHOLD_MS, isRecoverableShellError, reconnectPrompt, tabId]);
+    debugTerminal('send-input:invoke-completed');
+    settled = true;
+    window.clearTimeout(slowInputTimer);
+    window.clearTimeout(recoveryHintTimer);
+    if (queuedInputRef.current && !recoveringSessionRef.current) {
+      await flushQueuedInput();
+    }
+    if (!reconnectPromptRef.current && !recoveringSessionRef.current) {
+      setConnectionState('ready');
+      setConnectionMessage(null);
+    }
+  }, [clearConnectionUi, currentDir, debugTerminal, flushQueuedInput, isRecoverableShellError, markInteraction, reconnectPrompt, recoverTerminalConnection, requireManualReconnect, serverId, tabId, writeRecoveryBoundary]);
 
   const focusTerminal = useCallback(() => {
     xtermRef.current?.focus();
   }, []);
 
   const handleReconnect = useCallback(async () => {
+    const recovered = await ensureSession('正在手动重连终端...');
+    if (!recovered) {
+      requireManualReconnect('connection_error', '重连失败，请稍后重试。');
+      return;
+    }
     xtermRef.current?.clear();
     xtermRef.current?.reset();
-    const recovered = await ensureSession();
-    if (!recovered) {
-      setReconnectPrompt({
-        reason: 'connection_error',
-        message: '重连失败，请稍后重试。',
+
+    const { rows, cols } = terminalSizeRef.current;
+    try {
+      await invoke<ShellSendResult>('reconnect_shell_with_context', {
+        serverId,
+        tabId,
+        rows,
+        cols,
+        currentDir,
       });
+      clearConnectionUi();
+      markInteraction();
+    } catch (err) {
+      console.error('Failed to reconnect shell manually:', err);
+      requireManualReconnect('connection_error', '重连失败，请稍后重试。');
       return;
     }
 
-    pendingOutputRef.current = '';
-    flushScheduledRef.current = false;
-    lastActivityAtRef.current = Date.now();
-    setReconnectPrompt(null);
     focusTerminal();
-  }, [ensureSession, focusTerminal]);
-
-  const flushPendingOutput = useCallback(() => {
-    if (flushScheduledRef.current || !isActiveRef.current || !xtermRef.current) {
-      return;
-    }
-    flushScheduledRef.current = true;
-
-    const flushChunk = () => {
-      if (!isActiveRef.current || !xtermRef.current) {
-        flushScheduledRef.current = false;
-        return;
-      }
-
-      if (!pendingOutputRef.current) {
-        flushScheduledRef.current = false;
-        return;
-      }
-
-      const chunk = pendingOutputRef.current.slice(0, 8192);
-      pendingOutputRef.current = pendingOutputRef.current.slice(chunk.length);
-      xtermRef.current.write(chunk);
-      lastActivityAtRef.current = Date.now();
-
-      if (pendingOutputRef.current) {
-        window.setTimeout(flushChunk, 16);
-      } else {
-        flushScheduledRef.current = false;
-      }
-    };
-
-    window.setTimeout(flushChunk, 0);
-  }, []);
-
-  const flushTerminalOutput = useCallback((output: string) => {
-    if (!output) {
-      return;
-    }
-    if (isActiveRef.current && xtermRef.current) {
-      if (pendingOutputRef.current) {
-        pendingOutputRef.current += output;
-        flushPendingOutput();
-      } else {
-        xtermRef.current.write(output);
-      }
-    } else {
-      pendingOutputRef.current += output;
-      if (pendingOutputRef.current.length > 1024 * 1024) {
-        pendingOutputRef.current = pendingOutputRef.current.slice(-512 * 1024);
-      }
-    }
-  }, [flushPendingOutput]);
+  }, [clearConnectionUi, currentDir, ensureSession, focusTerminal, markInteraction, requireManualReconnect, serverId, tabId]);
 
   const finalizeFeedbackCapture = useCallback(async (exitCode: number) => {
     const execution = pendingAiExecutionRef.current;
@@ -325,6 +627,140 @@ export function Terminal({
     return visible;
   }, [finalizeFeedbackCapture]);
 
+  const syncDirectoryFromTerminalBuffer = useCallback(() => {
+    const terminal = xtermRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    const buffer = terminal.buffer.active;
+    const endLine = buffer.baseY + buffer.cursorY;
+    let startLine = endLine;
+
+    while (startLine > 0 && buffer.getLine(startLine)?.isWrapped) {
+      startLine -= 1;
+    }
+
+    let promptLine = '';
+    for (let lineIndex = startLine; lineIndex <= endLine; lineIndex += 1) {
+      promptLine += buffer.getLine(lineIndex)?.translateToString(true) ?? '';
+    }
+
+    const normalizedLine = stripAnsi(promptLine).trimEnd();
+    if (!normalizedLine) {
+      return;
+    }
+
+    const usernamePattern = serverUsername
+      ? escapeRegExp(serverUsername)
+      : '[^@\\r\\n\\s]+';
+    const promptPattern = new RegExp(`^${usernamePattern}@[^:\\r\\n]+:(.+?)[#$]\\s*$`);
+    const promptMatch = normalizedLine.match(promptPattern);
+    if (!promptMatch) {
+      return;
+    }
+
+    const resolvedPath = resolvePromptPath(promptMatch[1].trim(), serverUsername);
+    if (resolvedPath.startsWith('/')) {
+      onDirectoryResolved?.(tabId, resolvedPath);
+    }
+  }, [onDirectoryResolved, serverUsername, tabId]);
+
+  const flushPendingOutput = useCallback(() => {
+    if (flushScheduledRef.current || !isActiveRef.current || !xtermRef.current) {
+      return;
+    }
+    flushScheduledRef.current = true;
+
+    const flushChunk = () => {
+      if (!isActiveRef.current || !xtermRef.current) {
+        flushScheduledRef.current = false;
+        return;
+      }
+
+      if (!pendingOutputRef.current) {
+        flushScheduledRef.current = false;
+        return;
+      }
+
+      const chunk = pendingOutputRef.current.slice(0, 8192);
+      pendingOutputRef.current = pendingOutputRef.current.slice(chunk.length);
+      xtermRef.current.write(chunk, () => {
+        lastActivityAtRef.current = Date.now();
+        syncDirectoryFromTerminalBuffer();
+
+        if (pendingOutputRef.current) {
+          window.setTimeout(flushChunk, 16);
+        } else {
+          flushScheduledRef.current = false;
+        }
+      });
+    };
+
+    window.setTimeout(flushChunk, 0);
+  }, [syncDirectoryFromTerminalBuffer]);
+
+  const flushTerminalOutput = useCallback((output: string) => {
+    if (!output) {
+      return;
+    }
+    if (isActiveRef.current && xtermRef.current) {
+      if (pendingOutputRef.current) {
+        pendingOutputRef.current += output;
+        flushPendingOutput();
+      } else {
+        xtermRef.current.write(output, () => {
+          lastActivityAtRef.current = Date.now();
+          syncDirectoryFromTerminalBuffer();
+        });
+      }
+    } else {
+      pendingOutputRef.current += output;
+      if (pendingOutputRef.current.length > 1024 * 1024) {
+        pendingOutputRef.current = pendingOutputRef.current.slice(-512 * 1024);
+      }
+    }
+  }, [flushPendingOutput, syncDirectoryFromTerminalBuffer]);
+
+  const trackCommandLineInput = useCallback((data: string) => {
+    if (!data) {
+      return;
+    }
+
+    let buffer = commandLineBufferRef.current;
+
+    for (const char of data) {
+      if (char === '\r') {
+        const command = buffer.trim();
+        if (command) {
+          onCommandEntered?.(tabId, command);
+        }
+        buffer = '';
+        continue;
+      }
+
+      if (char === '\u007f') {
+        buffer = buffer.slice(0, -1);
+        continue;
+      }
+
+      if (char === '\u0003' || char === '\u0015') {
+        buffer = '';
+        continue;
+      }
+
+      if (char === '\u001b') {
+        continue;
+      }
+
+      if (char >= ' ' && char !== '\u007f') {
+        buffer += char;
+      }
+    }
+
+    commandLineBufferRef.current = buffer;
+  }, [onCommandEntered, tabId]);
+
   // Initialize xterm
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -377,17 +813,7 @@ export function Terminal({
       if (reconnectPromptRef.current) {
         return false;
       }
-
-      const idleDuration = Date.now() - lastActivityAtRef.current;
-      if (idleDuration <= ACTIVE_IDLE_RECONNECT_THRESHOLD_MS) {
-        return true;
-      }
-
-      setReconnectPrompt({
-        reason: 'idle_timeout',
-        message: '终端长时间空闲后可能已失效，请先手动重连。',
-      });
-      return false;
+      return true;
     });
 
     xtermRef.current = xterm;
@@ -429,7 +855,7 @@ export function Terminal({
       xtermRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [ensureSession, serverId, tabId]);
+  }, [serverId, tabId]);
 
   useEffect(() => {
     if (!xtermRef.current || !fitAddonRef.current || !isActive) {
@@ -443,31 +869,16 @@ export function Terminal({
 
       const inactiveDuration = lastInactiveDurationRef.current;
 
-      try {
-        if (inactiveDuration > BACKGROUND_RECONNECT_THRESHOLD_MS) {
-          setReconnectPrompt({
-            reason: 'background_timeout',
-            message: '终端在后台停留较久，建议先重连再继续使用。',
-          });
-          return;
-        } else {
-          const isAlive = await invoke<boolean>('shell_is_alive', { tabId });
-          if (!isAlive) {
-            setReconnectPrompt({
-              reason: 'connection_error',
-              message: '终端连接已失效，请手动重连后继续使用。',
-            });
-            return;
-          }
-        }
-      } catch (err) {
-        if (isRecoverableShellError(err)) {
-          setReconnectPrompt({
-            reason: 'connection_error',
-            message: '终端连接检查失败，请手动重连后继续使用。',
-          });
-          return;
-        }
+      const recovered = await recoverTerminalConnection({
+        inactiveDuration,
+        checkingMessage: '正在确认终端连接...',
+        reconnectingMessage: '连接已断开，正在重新建立 SSH 会话...',
+        manualReason: 'background_timeout',
+        manualMessage: '终端空闲超过 30 分钟，需要确认恢复连接。',
+      });
+
+      if (!recovered) {
+        return;
       }
 
       if (!xtermRef.current || !fitAddonRef.current || !isActiveRef.current) {
@@ -485,7 +896,48 @@ export function Terminal({
     };
 
     activateTerminal().catch(console.error);
-  }, [BACKGROUND_RECONNECT_THRESHOLD_MS, flushPendingOutput, isActive, isRecoverableShellError, tabId]);
+  }, [flushPendingOutput, isActive, recoverTerminalConnection, tabId]);
+
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    const handleWindowResume = () => {
+      const tabInactiveDuration = inactiveSinceRef.current
+        ? Date.now() - inactiveSinceRef.current
+        : 0;
+      const windowInactiveDuration = lastWindowInactiveAtRef.current
+        ? Date.now() - lastWindowInactiveAtRef.current
+        : 0;
+      const inactiveDuration = Math.max(tabInactiveDuration, windowInactiveDuration);
+      lastWindowInactiveAtRef.current = null;
+      if (inactiveDuration < WINDOW_RESUME_PROBE_THRESHOLD_MS) {
+        return;
+      }
+      void recoverTerminalConnection({
+        inactiveDuration,
+        checkingMessage: '正在确认终端连接...',
+        reconnectingMessage: '连接已断开，正在重新建立 SSH 会话...',
+        manualReason: 'background_timeout',
+        manualMessage: '终端空闲超过 30 分钟，需要确认恢复连接。',
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleWindowResume();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowResume);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleWindowResume);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isActive, recoverTerminalConnection]);
 
   // Handle terminal input
   useEffect(() => {
@@ -509,6 +961,7 @@ export function Terminal({
         return;
       }
       const converted = convertEscapes(data);
+      trackCommandLineInput(converted);
       sendInput(converted);
     };
 
@@ -517,7 +970,7 @@ export function Terminal({
     return () => {
       disposable.dispose();
     };
-  }, [sendInput]);
+  }, [sendInput, trackCommandLineInput]);
 
   // Copy current selection into clipboard when the user selects text in xterm.
   useEffect(() => {
@@ -557,9 +1010,8 @@ export function Terminal({
       } catch (err) {
         if (isRecoverableShellError(err)) {
           if (isActiveRef.current) {
-            setReconnectPrompt((current) => current ?? {
-              reason: 'connection_error',
-              message: '终端连接已失效，请手动重连后继续使用。',
+            void recoverTerminalConnection({
+              reconnectingMessage: '终端输出中断，正在后台恢复...',
             });
           }
         } else {
@@ -587,7 +1039,7 @@ export function Terminal({
         window.clearTimeout(timeoutId);
       }
     };
-  }, [flushTerminalOutput, isRecoverableShellError, processFeedbackChunk, tabId]);
+  }, [flushTerminalOutput, isRecoverableShellError, processFeedbackChunk, recoverTerminalConnection, tabId]);
 
   const handleContextMenu = useCallback(async (e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -603,6 +1055,7 @@ export function Terminal({
   }, [focusTerminal, sendInput]);
 
   const handleOpenFileBrowser = useCallback(() => {
+    lastUserInteractionAtRef.current = Date.now();
     void openFileBrowserWindow({
       tabId,
       serverId,
@@ -610,6 +1063,21 @@ export function Terminal({
       currentDir,
     });
   }, [currentDir, serverId, serverName, tabId]);
+
+  const showTransientStatus = connectionState === 'checking'
+    || connectionState === 'reconnecting'
+    || connectionState === 'restoring';
+  const terminalStatusLabel = connectionState === 'checking'
+    ? '正在恢复中'
+    : connectionState === 'reconnecting'
+      ? '正在恢复中'
+      : connectionState === 'restoring'
+        ? '正在恢复中'
+      : connectionState === 'manual_required'
+        ? '需要手动重连'
+        : connectionState === 'error'
+          ? '恢复失败'
+          : '连接正常';
 
   return (
     <div className={`terminal-stage ${isActive ? 'active' : 'inactive'}`}>
@@ -622,6 +1090,10 @@ export function Terminal({
           </div>
         </div>
         <div className="terminal-stage-actions">
+          <div className={`terminal-stage-status terminal-stage-status-${connectionState}`}>
+            <span className="terminal-stage-status-dot" aria-hidden="true" />
+            <span>{terminalStatusLabel}</span>
+          </div>
           <button
             type="button"
             className="terminal-stage-action-btn"
@@ -643,6 +1115,40 @@ export function Terminal({
           onClick={focusTerminal}
           onContextMenu={handleContextMenu}
         />
+        {isActive && showTransientStatus && connectionMessage && (
+          <div className="terminal-reconnect-overlay terminal-reconnect-overlay-soft">
+            <div className="terminal-reconnect-card">
+              <div className="terminal-reconnect-title">
+                {connectionState === 'reconnecting'
+                  ? '正在恢复中...'
+                  : connectionState === 'restoring'
+                    ? '正在恢复中...'
+                    : '正在恢复中...'}
+              </div>
+              <div className="terminal-reconnect-text">{connectionMessage}</div>
+              <div className="terminal-reconnect-text terminal-reconnect-text-subtle">
+                {connectionState === 'reconnecting'
+                  ? (queuedInputRef.current
+                    ? '正在重新建立 SSH 与 PTY，会在恢复后自动补发你刚才的输入。'
+                    : '正在重新建立 SSH 与 PTY，恢复完成后会继续显示当前终端内容。')
+                  : connectionState === 'restoring'
+                    ? '正在恢复目录和输入状态，当前 shell 还原完成后会自动回到你刚才的位置。'
+                    : '正在检查并恢复终端连接，若 shell 仍存活则不会打断当前会话。'}
+              </div>
+              {showFastReconnectAction && (
+                <div className="terminal-reconnect-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => { void handleReconnect(); }}
+                  >
+                    立即重连
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {isActive && reconnectPrompt && (
           <div className="terminal-reconnect-overlay">
             <div className="terminal-reconnect-card">

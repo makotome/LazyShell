@@ -1,7 +1,7 @@
 use crate::crypto::{auth_file_exists, decrypt_server_config, encrypt_server_config, get_auth_file_path, verify_password, setup_password};
 use crate::learning;
 use crate::memory;
-use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, PersistentShell, ServerBanner, ServerConfig, SSHConnection, SSHConnectionManager};
+use crate::ssh::{check_dangerous_command, AuthMethod, CommandOutput, PersistentShell, ServerBanner, ServerConfig, ShellProbeStatus, SSHConnection, SSHConnectionManager};
 use serde::{Deserialize, Serialize};
 use ssh2::{FileStat, OpenFlags, OpenType};
 use std::io::{Read, Write};
@@ -149,6 +149,28 @@ pub struct RemoteFileContent {
 
 const MAX_TEXT_EDIT_SIZE: u64 = 512 * 1024;
 const TEXT_SAMPLE_SIZE: usize = 4096;
+const TERMINAL_IDLE_PREFLIGHT_THRESHOLD_MS: u64 = 3 * 60_000;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellCommandPhase {
+    Sent,
+    ReconnectedAndSent,
+    Ready,
+    Reconnected,
+    ManualRequired,
+    Error,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellSendResult {
+    pub delivered: bool,
+    pub reconnected: bool,
+    pub restored_directory: bool,
+    pub phase: ShellCommandPhase,
+    pub message: Option<String>,
+}
 
 fn normalize_remote_path(path: &str) -> String {
     if path.trim().is_empty() {
@@ -315,6 +337,120 @@ fn build_remote_child_path(parent_dir: &str, child_name: &str) -> String {
         format!("/{}", child_name)
     } else {
         format!("{}/{}", parent_dir, child_name)
+    }
+}
+
+fn escape_shell_single_quote(value: &str) -> String {
+    value.replace('\'', "'\\''")
+}
+
+fn is_recoverable_shell_write_error(err: &crate::ssh::SSHError) -> bool {
+    match err {
+        crate::ssh::SSHError::NotConnected => true,
+        crate::ssh::SSHError::IoError(message)
+        | crate::ssh::SSHError::ExecutionFailed(message)
+        | crate::ssh::SSHError::ConnectionFailed(message) => {
+            let normalized = message.to_lowercase();
+            normalized.contains("not connected")
+                || normalized.contains("broken pipe")
+                || normalized.contains("channel closed")
+                || normalized.contains("socket disconnected")
+                || normalized.contains("transport")
+                || normalized.contains("timed out while writing full pty input")
+                || normalized.contains("eof")
+        }
+        _ => false,
+    }
+}
+
+fn recreate_shell_session(
+    state: &AppState,
+    server_id: &str,
+    tab_id: &str,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    if state.ssh_manager.has_persistent_shell(tab_id) {
+        if state.ssh_manager.reconnect_persistent_shell(tab_id, rows, cols).is_ok() {
+            return Ok(());
+        }
+
+        if let Some(mut shell) = state.ssh_manager.remove_persistent_shell(tab_id) {
+            let _ = shell.close();
+            shell.disconnect();
+        }
+    }
+
+    let config = state.ssh_manager.get_config(server_id).ok_or("Server not found")?;
+    let shell = PersistentShell::new(config, rows, cols).map_err(|e| e.to_string())?;
+    state.ssh_manager.add_persistent_shell(tab_id.to_string(), shell)
+        .map_err(|e| e.to_string())
+}
+
+fn restore_shell_directory(
+    state: &AppState,
+    tab_id: &str,
+    current_dir: &str,
+) -> Result<bool, String> {
+    let target_dir = if current_dir.trim().is_empty() { "/" } else { current_dir };
+    let command = format!("cd -- '{}'\r", escape_shell_single_quote(target_dir));
+    state
+        .ssh_manager
+        .write_to_persistent_shell(tab_id, &command)
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+fn prepare_shell_session(
+    state: &AppState,
+    server_id: &str,
+    tab_id: &str,
+    rows: u16,
+    cols: u16,
+    current_dir: &str,
+    idle_duration_ms: Option<u64>,
+) -> Result<(bool, bool), String> {
+    let has_shell = state.ssh_manager.has_persistent_shell(tab_id);
+    let stalled_interaction = has_shell
+        && state
+            .ssh_manager
+            .persistent_shell_has_stalled_interaction(tab_id);
+    let should_probe = idle_duration_ms.unwrap_or(0) >= TERMINAL_IDLE_PREFLIGHT_THRESHOLD_MS
+        || !has_shell
+        || stalled_interaction;
+
+    eprintln!(
+        "[shell_prepare_session:{tab_id}] start server_id={server_id} rows={rows} cols={cols} current_dir={current_dir:?} idle_duration_ms={:?} should_probe={should_probe} has_shell={} stalled_interaction={stalled_interaction}",
+        idle_duration_ms,
+        has_shell,
+    );
+
+    let probe = if should_probe {
+        state.ssh_manager.probe_persistent_shell(tab_id, rows, cols)
+    } else {
+        ShellProbeStatus::Alive
+    };
+
+    eprintln!(
+        "[shell_prepare_session:{tab_id}] probe_result={probe:?}"
+    );
+
+    match probe {
+        ShellProbeStatus::Alive => {
+            eprintln!("[shell_prepare_session:{tab_id}] ready_without_reconnect");
+            Ok((false, false))
+        }
+        ShellProbeStatus::Suspect | ShellProbeStatus::Dead => {
+            eprintln!(
+                "[shell_prepare_session:{tab_id}] recreating_shell due_to={probe:?}"
+            );
+            recreate_shell_session(state, server_id, tab_id, rows, cols)?;
+            let restored = restore_shell_directory(state, tab_id, current_dir)?;
+            eprintln!(
+                "[shell_prepare_session:{tab_id}] recreate_complete restored_directory={restored}"
+            );
+            Ok((true, restored))
+        }
     }
 }
 
@@ -1092,8 +1228,23 @@ pub fn shell_input(
     data: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    state.ssh_manager.write_to_persistent_shell(&tab_id, &data)
-        .map_err(|e| e.to_string())
+    eprintln!(
+        "[shell_input:{}] start len={} preview={:?}",
+        tab_id,
+        data.len(),
+        data.chars().take(20).collect::<String>()
+    );
+    let start = std::time::Instant::now();
+    let result = state.ssh_manager.write_to_persistent_shell(&tab_id, &data)
+        .map_err(|e| e.to_string());
+    eprintln!(
+        "[shell_input:{}] done elapsed_ms={} ok={} result={}",
+        tab_id,
+        start.elapsed().as_millis(),
+        result.is_ok(),
+        result.as_ref().err().cloned().unwrap_or_else(|| "ok".to_string())
+    );
+    result
 }
 
 /// Check if the buffer's trailing bytes contain no incomplete escape sequence.
@@ -1203,6 +1354,14 @@ pub fn shell_output(
         }
     }
 
+    if !output.is_empty() {
+        let preview: String = output.chars().take(120).collect();
+        eprintln!(
+            "[shell_output:{tab_id}] bytes={} preview={preview:?}",
+            output.len()
+        );
+    }
+
     Ok(output)
 }
 
@@ -1213,6 +1372,132 @@ pub fn shell_is_alive(
     state: State<AppState>,
 ) -> Result<bool, String> {
     Ok(state.ssh_manager.is_persistent_shell_alive(&tab_id))
+}
+
+#[tauri::command]
+pub fn shell_probe(
+    tab_id: String,
+    rows: u16,
+    cols: u16,
+    state: State<AppState>,
+) -> Result<ShellProbeStatus, String> {
+    Ok(state.ssh_manager.probe_persistent_shell(&tab_id, rows, cols))
+}
+
+#[tauri::command]
+pub fn shell_prepare_session_resilient(
+    server_id: String,
+    tab_id: String,
+    rows: u16,
+    cols: u16,
+    current_dir: String,
+    idle_duration_ms: Option<u64>,
+    state: State<AppState>,
+) -> Result<ShellSendResult, String> {
+    let operation_lock = state.ssh_manager.shell_operation_lock(&tab_id);
+    let _operation_guard = operation_lock.lock().map_err(|e| e.to_string())?;
+
+    eprintln!(
+        "[shell_prepare_session_resilient:{tab_id}] start rows={rows} cols={cols} idle_duration_ms={:?}",
+        idle_duration_ms
+    );
+
+    let (reconnected, restored_directory) = prepare_shell_session(
+        &state,
+        &server_id,
+        &tab_id,
+        rows,
+        cols,
+        &current_dir,
+        idle_duration_ms,
+    )?;
+
+    Ok(ShellSendResult {
+        delivered: false,
+        reconnected,
+        restored_directory,
+        phase: if reconnected {
+            ShellCommandPhase::Reconnected
+        } else {
+            ShellCommandPhase::Ready
+        },
+        message: None,
+    })
+}
+
+#[tauri::command]
+pub fn shell_send_input_resilient(
+    server_id: String,
+    tab_id: String,
+    rows: u16,
+    cols: u16,
+    current_dir: String,
+    idle_duration_ms: Option<u64>,
+    data: String,
+    state: State<AppState>,
+) -> Result<ShellSendResult, String> {
+    let operation_lock = state.ssh_manager.shell_operation_lock(&tab_id);
+    let _operation_guard = operation_lock.lock().map_err(|e| e.to_string())?;
+
+    eprintln!(
+        "[shell_send_input_resilient:{tab_id}] start rows={rows} cols={cols} idle_duration_ms={:?} data_len={}",
+        idle_duration_ms,
+        data.len()
+    );
+
+    let (mut reconnected, mut restored_directory) = prepare_shell_session(
+        &state,
+        &server_id,
+        &tab_id,
+        rows,
+        cols,
+        &current_dir,
+        idle_duration_ms,
+    )?;
+
+    match state.ssh_manager.write_to_persistent_shell(&tab_id, &data) {
+        Ok(_) => Ok(ShellSendResult {
+            delivered: true,
+            reconnected,
+            restored_directory,
+            phase: if reconnected {
+                ShellCommandPhase::ReconnectedAndSent
+            } else {
+                ShellCommandPhase::Sent
+            },
+            message: None,
+        }),
+        Err(err) if is_recoverable_shell_write_error(&err) => {
+            eprintln!(
+                "[shell_send_input_resilient:{tab_id}] recoverable_write_error={err}"
+            );
+            recreate_shell_session(&state, &server_id, &tab_id, rows, cols)?;
+            reconnected = true;
+            restored_directory = restore_shell_directory(&state, &tab_id, &current_dir)?;
+            state
+                .ssh_manager
+                .write_to_persistent_shell(&tab_id, &data)
+                .map_err(|retry_err| retry_err.to_string())?;
+
+            eprintln!(
+                "[shell_send_input_resilient:{tab_id}] retry_write_ok restored_directory={restored_directory}"
+            );
+
+            Ok(ShellSendResult {
+                delivered: true,
+                reconnected,
+                restored_directory,
+                phase: ShellCommandPhase::ReconnectedAndSent,
+                message: None,
+            })
+        }
+        Err(err) => {
+            eprintln!(
+                "[shell_send_input_resilient:{tab_id}] nonrecoverable_write_error={err}"
+            );
+            Err(err.to_string())
+        }
+    }
 }
 
 /// Resize shell terminal
@@ -1237,6 +1522,30 @@ pub fn reconnect_shell(
 ) -> Result<(), String> {
     state.ssh_manager.reconnect_persistent_shell(&tab_id, rows, cols)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reconnect_shell_with_context(
+    server_id: String,
+    tab_id: String,
+    rows: u16,
+    cols: u16,
+    current_dir: String,
+    state: State<AppState>,
+) -> Result<ShellSendResult, String> {
+    let operation_lock = state.ssh_manager.shell_operation_lock(&tab_id);
+    let _operation_guard = operation_lock.lock().map_err(|e| e.to_string())?;
+
+    recreate_shell_session(&state, &server_id, &tab_id, rows, cols)?;
+    let restored_directory = restore_shell_directory(&state, &tab_id, &current_dir)?;
+
+    Ok(ShellSendResult {
+        delivered: false,
+        reconnected: true,
+        restored_directory,
+        phase: ShellCommandPhase::Reconnected,
+        message: None,
+    })
 }
 
 /// Close shell session
