@@ -74,6 +74,20 @@ npm run tauri:build
 
 如果修改了 `src-tauri/capabilities/` 或 `src-tauri/tauri.conf.json`，需要重启 `tauri dev`。
 
+### macOS 自编译应用首次打开
+
+如果是开发者自己本地编译，或从 GitHub Actions 下载未签名的 macOS 构建产物，首次打开时可能被 Gatekeeper 拦截，并提示“已损坏”或无法验证开发者。
+
+可先把 `LazyShell.app` 放到“应用程序”目录，再执行：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/LazyShell.app"
+```
+
+执行后再通过 Finder 右键 `LazyShell.app`，选择“打开”。
+
+这只适用于本机开发和测试放行，不等同于正式签名或 notarization 发布。
+
 ## 首次使用
 
 1. 启动应用。
