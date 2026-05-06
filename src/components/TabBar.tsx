@@ -19,7 +19,6 @@ const layoutOptions: { mode: LayoutMode; title: string }[] = [
 ];
 
 function LayoutIcon({ mode }: { mode: LayoutMode }) {
-  // Each icon is a 16x16 SVG showing a miniature layout preview
   switch (mode) {
     case 'sidebar-terminal':
       return (
@@ -55,6 +54,7 @@ function LayoutIcon({ mode }: { mode: LayoutMode }) {
 export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, layoutMode, onLayoutChange }: TabBarProps) {
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
+  const activeDir = activeTab?.currentDir || '/';
 
   // Scroll active tab into view
   useEffect(() => {
@@ -78,9 +78,12 @@ export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, l
 
   return (
     <div className="tab-bar">
-      <div className="tab-bar-meta">
-        <span className="tab-bar-kicker">Workspace</span>
-        <span className="tab-bar-label">{activeTab ? activeTab.serverName : '未连接服务器'}</span>
+      <div className="workspace-status" title={activeTab ? `${activeTab.serverName}:${activeDir}` : '未连接服务器'}>
+        <span className={`workspace-status-dot ${activeTab ? 'online' : ''}`} aria-hidden="true" />
+        <div className="workspace-status-copy">
+          <span className="workspace-status-name">{activeTab ? activeTab.serverName : '未连接服务器'}</span>
+          <span className="workspace-status-path">{activeTab ? activeDir : '选择左侧服务器开始'}</span>
+        </div>
       </div>
       <div className="tabs-container" ref={tabsContainerRef}>
         {tabs.map((tab) => (
@@ -93,7 +96,6 @@ export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, l
             role="tab"
             aria-selected={activeTabId === tab.id}
           >
-            <span className="tab-icon" aria-hidden="true">▣</span>
             <span className="tab-name" title={`${tab.serverName} (${tab.currentDir})`}>
               {tab.serverName}
             </span>
@@ -117,13 +119,14 @@ export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, l
         +
       </button>
       <div className="layout-separator" />
-      <div className="layout-buttons">
+      <div className="layout-buttons" aria-label="布局切换">
         {layoutOptions.map(({ mode, title }) => (
           <button
             key={mode}
             className={`layout-btn ${layoutMode === mode ? 'active' : ''}`}
             onClick={() => onLayoutChange(mode)}
             title={title}
+            aria-label={title}
           >
             <LayoutIcon mode={mode} />
           </button>

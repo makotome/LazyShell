@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { AIProviderManager, createProvider } from './providers/aiProvider';
 import { AIChat } from './components/AIChat';
 import { Terminal } from './components/Terminal';
@@ -108,7 +109,7 @@ function App() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isServerFormOpen, setIsServerFormOpen] = useState(false);
-  const [isServerListExpanded, setIsServerListExpanded] = useState(false);
+  const [isServerListExpanded, setIsServerListExpanded] = useState(true);
   const [providerManager] = useState(() => new AIProviderManager());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [aiSectionCollapsed, setAiSectionCollapsed] = useState(false);
@@ -120,7 +121,6 @@ function App() {
   const recentHistoryWriteRef = useRef<Record<string, { command: string; timestamp: number }>>({});
   const shellSessionsRef = useRef<Record<string, boolean>>({});
 
-  // Compute layout mode from sidebar/ai collapsed states
   const layoutMode = useMemo<LayoutMode>(() => {
     if (!sidebarCollapsed && aiSectionCollapsed) return 'sidebar-terminal';
     if (!sidebarCollapsed && !aiSectionCollapsed) return 'all';
@@ -280,17 +280,49 @@ function App() {
     loadProviderConfig();
   }, [checkMasterPassword, loadProviderConfig]);
 
-  // Keyboard shortcuts: Cmd+B for sidebar, Cmd+Shift+I for AI, Cmd+1-9 for tabs
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+
+    listen<string>('lazyshell:menu', (event) => {
+      switch (event.payload) {
+        case 'view:layout:all':
+          handleLayoutChange('all');
+          break;
+        case 'view:layout:sidebar-terminal':
+          handleLayoutChange('sidebar-terminal');
+          break;
+        case 'view:layout:terminal-ai':
+          handleLayoutChange('terminal-ai');
+          break;
+        case 'view:layout:terminal-fullscreen':
+          handleLayoutChange('terminal-fullscreen');
+          break;
+        case 'view:toggle-sidebar':
+          setSidebarCollapsed((prev) => !prev);
+          break;
+        case 'view:toggle-ai':
+          setAiSectionCollapsed((prev) => !prev);
+          break;
+        case 'view:settings':
+          setShowSettings(true);
+          break;
+        default:
+          break;
+      }
+    }).then((handler) => {
+      unlisten = handler;
+    }).catch((err) => {
+      console.error('Failed to register menu listener:', err);
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [handleLayoutChange]);
+
+  // Keyboard shortcuts: Cmd+1-9 for tabs. Layout shortcuts are handled by the native View menu.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
-        e.preventDefault();
-        setSidebarCollapsed((prev) => !prev);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'I') {
-        e.preventDefault();
-        setAiSectionCollapsed((prev) => !prev);
-      }
       if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
         e.preventDefault();
         const index = parseInt(e.key) - 1;
@@ -378,8 +410,9 @@ function App() {
   const handleTerminalExecute = useCallback((
     command: string,
     source: CommandHistory['source'] = 'terminal',
-    _feedback?: { userIntent: string; suggestedCommand?: string }
+    feedback?: { userIntent: string; suggestedCommand?: string }
   ) => {
+    void feedback;
     if (!activeTabId || !activeTab) return;
 
     invoke('shell_input', { tabId: activeTabId, data: `${command}\r` }).catch(err => {
@@ -578,6 +611,14 @@ function App() {
     }
   }, [servers, handleServerSelect]);
 
+  const handleRevealServers = useCallback(() => {
+    setSidebarCollapsed(false);
+    setIsServerListExpanded(true);
+    if (servers.length === 0) {
+      setIsServerFormOpen(true);
+    }
+  }, [servers.length]);
+
   const handleCloseSettings = useCallback(() => {
     setShowSettings(false);
   }, []);
@@ -684,14 +725,6 @@ function App() {
         </div>
       </aside>
 
-      <button
-        className="collapse-btn collapse-btn-sidebar"
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
-      >
-        {sidebarCollapsed ? '▶' : '◀'}
-      </button>
-
       <main className="main-content">
         <div className="content-area">
           <div className="terminal-section">
@@ -705,6 +738,35 @@ function App() {
               onLayoutChange={handleLayoutChange}
             />
             <div className="terminal-container">
+              {tabs.length === 0 && (
+                <div className="terminal-empty-state">
+                  <div className="terminal-empty-mark" aria-hidden="true">lazyshell --workspace</div>
+                  <div className="terminal-empty-copy">
+                    <div className="terminal-empty-title">No active session</div>
+                    <div className="terminal-empty-text">Select a server to open SSH shell. AI, history, and remote files will follow the active session.</div>
+                  </div>
+                  <div className="terminal-empty-lines" aria-hidden="true">
+                    <span>$ ssh user@server</span>
+                    <span>waiting for target...</span>
+                  </div>
+                  <div className="terminal-empty-actions">
+                    {servers.length > 0 ? (
+                      <button type="button" className="btn btn-primary btn-small" onClick={handleRevealServers}>
+                        显示服务器列表
+                      </button>
+                    ) : (
+                      <button type="button" className="btn btn-primary btn-small" onClick={handleRevealServers}>
+                        添加第一台服务器
+                      </button>
+                    )}
+                    {servers.length > 0 && (
+                      <button type="button" className="btn btn-secondary btn-small" onClick={handleNewTab}>
+                        打开默认服务器
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {tabs.map((tab) => (
                 <Terminal
                   key={tab.id}
@@ -722,14 +784,6 @@ function App() {
               ))}
             </div>
           </div>
-          <button
-            className="collapse-btn collapse-btn-ai"
-            onClick={() => setAiSectionCollapsed(!aiSectionCollapsed)}
-            title={aiSectionCollapsed ? "展开 AI 助手" : "收起 AI 助手"}
-          >
-            {aiSectionCollapsed ? '◀' : '▶'}
-          </button>
-
           {!aiSectionCollapsed && (
             <div className="resize-handle resize-handle-right" onMouseDown={handleResizeMouseDown} />
           )}

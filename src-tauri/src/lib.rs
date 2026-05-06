@@ -3,6 +3,7 @@ mod commands_db;
 mod crypto;
 mod ssh;
 mod ai;
+mod app_menu;
 mod learning;
 mod memory;
 
@@ -98,6 +99,7 @@ pub fn run() {
             }
             app.handle().plugin(tauri_plugin_dialog::init())?;
             app.handle().plugin(tauri_plugin_clipboard_manager::init())?;
+            app_menu::install(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())

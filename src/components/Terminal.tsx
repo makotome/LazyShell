@@ -767,17 +767,18 @@ export function Terminal({
     // Create xterm instance
     const xterm = new XTerm({
       fontSize: 14,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      lineHeight: 1.34,
+      fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Roboto Mono", monospace',
       cursorBlink: true,
       cursorStyle: 'block',
       scrollback: 10000,
       theme: {
-        background: '#14161a',
-        foreground: '#e7ebf0',
-        cursor: '#eef2f6',
-        cursorAccent: '#14161a',
-        selectionBackground: 'rgba(188, 200, 214, 0.24)',
-        black: '#14161a',
+        background: '#070c12',
+        foreground: '#dfe7ee',
+        cursor: '#d8e2eb',
+        cursorAccent: '#071019',
+        selectionBackground: 'rgba(174, 189, 202, 0.2)',
+        black: '#070c12',
         red: '#cd3131',
         green: '#4fb887',
         yellow: '#e5e510',
@@ -1068,47 +1069,42 @@ export function Terminal({
     || connectionState === 'reconnecting'
     || connectionState === 'restoring';
   const terminalStatusLabel = connectionState === 'checking'
-    ? '正在恢复中'
+    ? 'checking'
     : connectionState === 'reconnecting'
-      ? '正在恢复中'
+      ? 'reconnecting'
       : connectionState === 'restoring'
-        ? '正在恢复中'
+        ? 'restoring'
       : connectionState === 'manual_required'
-        ? '需要手动重连'
+        ? 'manual reconnect'
         : connectionState === 'error'
-          ? '恢复失败'
-          : '连接正常';
+          ? 'error'
+          : 'ssh ready';
 
   return (
-    <div className={`terminal-stage ${isActive ? 'active' : 'inactive'}`}>
-      <div className="terminal-stage-header">
-        <div className="terminal-stage-meta">
-          <span className="terminal-stage-kicker">Live Shell</span>
-          <div className="terminal-stage-copy">
-            <span className="terminal-stage-name">{serverName}</span>
-            <span className="terminal-stage-label">{serverId}</span>
-          </div>
-        </div>
-        <div className="terminal-stage-actions">
-          <div className={`terminal-stage-status terminal-stage-status-${connectionState}`}>
-            <span className="terminal-stage-status-dot" aria-hidden="true" />
-            <span>{terminalStatusLabel}</span>
-          </div>
-          <button
-            type="button"
-            className="terminal-stage-action-btn"
-            onClick={handleOpenFileBrowser}
-          >
-            文件浏览器
-          </button>
-          <div className="terminal-stage-indicators" aria-hidden="true">
-            <span className="terminal-stage-dot terminal-stage-dot-live" />
-            <span className="terminal-stage-dot" />
-            <span className="terminal-stage-dot" />
-          </div>
-        </div>
-      </div>
+    <div className={`terminal-stage ${isActive ? 'active' : 'inactive'} terminal-stage-${connectionState}`}>
       <div className="terminal-stage-body">
+        <div className="terminal-context-bar" aria-label={`${serverName} 终端上下文`}>
+          <div className="terminal-context-main">
+            <span className="terminal-context-protocol">PTY</span>
+            <span className="terminal-context-server" title={serverName}>{serverName}</span>
+          </div>
+          <span className="terminal-context-path" title={currentDir}>{currentDir}</span>
+          <div className="terminal-context-actions">
+            <div className={`terminal-stage-status terminal-stage-status-${connectionState}`}>
+              <span className="terminal-stage-status-dot" aria-hidden="true" />
+              <span className="terminal-stage-status-label">{terminalStatusLabel}</span>
+            </div>
+            <button
+              type="button"
+              className="terminal-stage-action-btn"
+              onClick={handleOpenFileBrowser}
+              title="打开文件浏览器"
+              aria-label="打开文件浏览器"
+            >
+              Files
+            </button>
+          </div>
+        </div>
         <div
           ref={terminalRef}
           className={`terminal-xterm ${isActive ? 'active' : 'inactive'}`}
@@ -1118,12 +1114,13 @@ export function Terminal({
         {isActive && showTransientStatus && connectionMessage && (
           <div className="terminal-reconnect-overlay terminal-reconnect-overlay-soft">
             <div className="terminal-reconnect-card">
+              <div className="terminal-reconnect-eyebrow">连接状态</div>
               <div className="terminal-reconnect-title">
                 {connectionState === 'reconnecting'
-                  ? '正在恢复中...'
+                  ? '正在重新建立终端会话'
                   : connectionState === 'restoring'
-                    ? '正在恢复中...'
-                    : '正在恢复中...'}
+                    ? '正在恢复输入和目录'
+                    : '正在检查连接'}
               </div>
               <div className="terminal-reconnect-text">{connectionMessage}</div>
               <div className="terminal-reconnect-text terminal-reconnect-text-subtle">
@@ -1152,6 +1149,7 @@ export function Terminal({
         {isActive && reconnectPrompt && (
           <div className="terminal-reconnect-overlay">
             <div className="terminal-reconnect-card">
+              <div className="terminal-reconnect-eyebrow terminal-reconnect-eyebrow-warning">需要确认</div>
               <div className="terminal-reconnect-title">终端需要重连</div>
               <div className="terminal-reconnect-text">{reconnectPrompt.message}</div>
               <div className="terminal-reconnect-actions">

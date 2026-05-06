@@ -185,16 +185,6 @@ export function ServerList({
     );
   }, [searchQuery, servers]);
 
-  const groupedServers = useMemo(() => {
-    const groups: Record<string, ServerInfo[]> = {};
-    filteredServers.forEach((server) => {
-      const group = groups[server.host] || [];
-      group.push(server);
-      groups[server.host] = group;
-    });
-    return Object.entries(groups).sort(([hostA], [hostB]) => hostA.localeCompare(hostB, 'zh-CN'));
-  }, [filteredServers]);
-
   const formTitle = editingServerId ? '编辑服务器' : '添加服务器';
   const hasSearchQuery = searchQuery.trim().length > 0;
 
@@ -217,8 +207,6 @@ export function ServerList({
           </button>
         </div>
       )}
-
-      <div className="server-list-hint">支持滚动和搜索，可直接点击卡片，或使用“连接服务器”按钮进入</div>
 
       {error && <div className="error-message">{error}</div>}
       {success && <div className="success-message">{success}</div>}
@@ -410,83 +398,75 @@ export function ServerList({
       )}
 
       <div className="server-groups">
-        {groupedServers.map(([host, hostServers]) => (
-          <div key={host} className="server-group">
-            <div className="server-group-header">
-              <span className="server-icon">🖥️</span>
-              <span className="group-name">{host}</span>
-            </div>
-            <div className="server-group-items">
-              {hostServers.map((server) => (
-                <div
-                  key={server.id}
-                  className={`server-item ${selectedServer === server.id ? 'selected' : ''}`}
-                  onClick={() => onServerSelect(server.id)}
+        <div className="server-group-items">
+          {filteredServers.map((server) => (
+            <div
+              key={server.id}
+              className={`server-item ${selectedServer === server.id ? 'selected' : ''}`}
+              onClick={() => onServerSelect(server.id)}
+            >
+              <div className="server-details">
+                <div className="server-main">
+                  <span className="server-name">{server.name}</span>
+                  <span className="server-enter-arrow" aria-hidden="true">→</span>
+                </div>
+                <div className="server-connection-line" title={`${server.username}@${server.host}:${server.port}`}>
+                  {server.username}@{server.host}:{server.port}
+                </div>
+              </div>
+              <div className="server-actions">
+                <button
+                  type="button"
+                  className={`btn btn-icon server-action-icon server-copy-btn ${copiedHost === server.host ? 'copied' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleCopyHost(server.host);
+                  }}
+                  title={copiedHost === server.host ? '已复制' : '复制主机地址'}
+                  aria-label={copiedHost === server.host ? '已复制主机地址' : '复制主机地址'}
                 >
-                  <div className="server-details">
-                    <div className="server-main">
-                      <span className="server-name">{server.name}</span>
-                      <span className="server-user" title={`${server.username}@${server.host}:${server.port}`}>
-                        @{server.username}
-                      </span>
-                      <span className="server-enter-arrow" aria-hidden="true">→</span>
-                    </div>
-                    <div className="server-actions">
-                      <button
-                        type="button"
-                        className={`btn btn-icon server-action-icon server-copy-btn ${copiedHost === server.host ? 'copied' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleCopyHost(server.host);
-                        }}
-                        title={copiedHost === server.host ? '已复制' : '复制主机地址'}
-                        aria-label={copiedHost === server.host ? '已复制主机地址' : '复制主机地址'}
-                      >
-                        {copiedHost === server.host ? '✅' : '📋'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-icon server-action-icon server-connect-action"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void onServerSelect(server.id);
-                        }}
-                        title="连接服务器"
-                        aria-label="连接服务器"
-                      >
-                        🔌
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-icon server-action-icon server-edit-action"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditServer(server);
-                        }}
-                        title="编辑"
-                        aria-label="编辑服务器"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-icon server-action-icon server-delete-action"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteServer(server);
-                        }}
-                        title="删除"
-                        aria-label="删除服务器"
-                      >
-                        🗑️
-                      </button>
-                  </div>
-                </div>
-                </div>
-              ))}
+                  {copiedHost === server.host ? '✓' : '⧉'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon server-action-icon server-connect-action"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onServerSelect(server.id);
+                  }}
+                  title="连接服务器"
+                  aria-label="连接服务器"
+                >
+                  ↵
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon server-action-icon server-edit-action"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditServer(server);
+                  }}
+                  title="编辑"
+                  aria-label="编辑服务器"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon server-action-icon server-delete-action"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPendingDeleteServer(server);
+                  }}
+                  title="删除"
+                  aria-label="删除服务器"
+                >
+                  ×
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
 
         {servers.length === 0 && !isAddFormOpen && (
           <div className="empty-state">

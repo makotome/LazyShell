@@ -48,7 +48,7 @@ interface ServerStatusSnapshot {
 }
 
 export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
@@ -89,9 +89,9 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
     setError(null);
   }, [serverId]);
 
-  // Poll status in background when expanded
+  // Poll status in background for the compact health summary.
   useEffect(() => {
-    if (isExpanded && serverId) {
+    if (serverId) {
       fetchStatus();
       pollIntervalRef.current = setInterval(fetchStatus, 15000);
     }
@@ -102,7 +102,7 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
         pollIntervalRef.current = null;
       }
     };
-  }, [isExpanded, serverId, fetchStatus]);
+  }, [serverId, fetchStatus]);
 
   if (!serverId) {
     return (
@@ -123,16 +123,53 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
     );
   }
 
+  const primaryDisk = getPrimaryDisk(status?.disk || []);
+  const memoryPercent = status?.memory.usePercent ?? 0;
+  const diskPercent = primaryDisk?.usePercent ?? 0;
+  const networkTotal = status?.network.reduce((total, net) => total + net.rxSpeed + net.txSpeed, 0) ?? 0;
+  const healthLevel = getHealthLevel(Math.max(memoryPercent, diskPercent), error);
+  const healthLabel = error
+    ? '状态异常'
+    : status
+      ? healthLevel === 'danger'
+        ? '需要关注'
+        : healthLevel === 'warning'
+          ? '负载偏高'
+          : '运行正常'
+      : '读取中';
+
   return (
     <div className="server-status">
       <div className="status-header" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="status-header-copy">
-          <span className="status-title">服务器状态</span>
-          <span className="status-subtitle">{serverName || '当前服务器'} · {serverHost || '未知地址'}</span>
+          <span className="status-title-row">
+            <span className={`status-health-dot ${healthLevel}`} aria-hidden="true" />
+            <span className="status-title">{serverName || '当前服务器'}</span>
+          </span>
+          <span className="status-subtitle">{serverHost || '未知地址'}</span>
         </div>
         <div className="status-header-meta">
-          {error && <span className="status-error">错误</span>}
-          <span className="status-toggle">{isExpanded ? '收起' : '展开'}</span>
+          <span className={`status-health-label ${healthLevel}`}>{healthLabel}</span>
+          <span className="status-toggle">{isExpanded ? '⌃' : '⌄'}</span>
+        </div>
+      </div>
+
+      <div className="status-summary-row">
+        <div className="status-summary-item">
+          <span className="status-summary-label">MEM</span>
+          <span className={`status-summary-value ${memoryPercent > 90 ? 'danger' : memoryPercent > 70 ? 'warning' : ''}`}>
+            {status ? `${memoryPercent}%` : '--'}
+          </span>
+        </div>
+        <div className="status-summary-item">
+          <span className="status-summary-label">DISK</span>
+          <span className={`status-summary-value ${diskPercent > 90 ? 'danger' : diskPercent > 70 ? 'warning' : ''}`}>
+            {primaryDisk ? `${diskPercent}%` : '--'}
+          </span>
+        </div>
+        <div className="status-summary-item">
+          <span className="status-summary-label">NET</span>
+          <span className="status-summary-value">{status ? `${formatBytes(networkTotal)}/s` : '--'}</span>
         </div>
       </div>
 
@@ -201,6 +238,30 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
       )}
     </div>
   );
+}
+
+function getPrimaryDisk(disks: DiskUsage[]): DiskUsage | null {
+  if (disks.length === 0) {
+    return null;
+  }
+
+  return disks.find((disk) => disk.mountedOn === '/') || disks[0];
+}
+
+function getHealthLevel(maxPercent: number, error: string | null): 'ok' | 'warning' | 'danger' | 'muted' {
+  if (error) {
+    return 'danger';
+  }
+  if (maxPercent <= 0) {
+    return 'muted';
+  }
+  if (maxPercent > 90) {
+    return 'danger';
+  }
+  if (maxPercent > 70) {
+    return 'warning';
+  }
+  return 'ok';
 }
 
 function parseDisk(output: string): DiskUsage[] {
