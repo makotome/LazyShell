@@ -1,3 +1,4 @@
+import { Check, Clipboard, Copy, Pencil, Play, Sparkles, Star, X } from 'lucide-react';
 import type { AICommandOption, DangerLevel } from '../types';
 
 export interface PendingActionOption {
@@ -62,7 +63,10 @@ export function AIPendingActionCard({
     <div className={`ai-pending-card danger-${dangerLevel}`}>
       <div className="ai-pending-header">
         <div className="ai-pending-heading">
-          <span className="ai-pending-kicker">待执行动作</span>
+          <span className="ai-pending-kicker">
+            <Sparkles className="ui-icon" aria-hidden="true" />
+            待执行动作
+          </span>
           <span className="ai-pending-title">{title}</span>
         </div>
         <div className="ai-pending-header-actions">
@@ -73,7 +77,7 @@ export function AIPendingActionCard({
             {isMulti ? `${options?.length || 0} 个候选` : DANGER_LABELS[dangerLevel]}
           </span>
           <button type="button" className="ai-pending-close" onClick={onClose} aria-label="关闭待执行动作">
-            ×
+            <X className="ui-icon" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -86,15 +90,19 @@ export function AIPendingActionCard({
           </div>
           <div className="ai-pending-actions">
             <button type="button" className={`btn ${dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`} onClick={onExecute}>
+              {commandSurface === 'sql' ? <Copy className="ui-icon" aria-hidden="true" /> : <Play className="ui-icon" aria-hidden="true" />}
               {singlePrimaryLabel}
             </button>
             <button type="button" className="btn btn-secondary btn-small btn-chip" onClick={onEdit}>
+              <Pencil className="ui-icon" aria-hidden="true" />
               调整
             </button>
             <button type="button" className="btn btn-secondary btn-small btn-chip" onClick={onSave}>
+              <Star className="ui-icon" aria-hidden="true" />
               {saveLabel}
             </button>
             <button type="button" className="btn btn-secondary btn-small btn-chip" onClick={onCopy}>
+              <Clipboard className="ui-icon" aria-hidden="true" />
               复制
             </button>
           </div>
@@ -125,9 +133,11 @@ export function AIPendingActionCard({
                   onClick={() => onOptionExecute?.(option, index)}
                   disabled={option.isExecuted && option.surface !== 'sql'}
                 >
+                  {option.surface === 'sql' ? <Copy className="ui-icon" aria-hidden="true" /> : option.isExecuted ? <Check className="ui-icon" aria-hidden="true" /> : <Play className="ui-icon" aria-hidden="true" />}
                   {option.surface === 'sql' ? '复制 SQL' : option.isExecuted ? '已执行' : '执行'}
                 </button>
                 <button type="button" className="btn btn-secondary btn-small btn-chip" onClick={() => onOptionEdit?.(option)}>
+                  <Pencil className="ui-icon" aria-hidden="true" />
                   调整
                 </button>
                 <button
@@ -136,6 +146,7 @@ export function AIPendingActionCard({
                   onClick={() => onOptionSave?.(option, index)}
                   disabled={option.isSaved}
                 >
+                  {option.isSaved ? <Check className="ui-icon" aria-hidden="true" /> : <Star className="ui-icon" aria-hidden="true" />}
                   {option.isSaved ? '已收藏' : '收藏'}
                 </button>
               </div>

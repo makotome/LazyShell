@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Save, Sparkles, X } from 'lucide-react';
 import { AIProviderManager, createProvider } from '../providers/aiProvider';
 import type { ManagedProviderInfo, ProviderType } from '../providers/aiProvider';
 import { invoke } from '@tauri-apps/api/core';
@@ -94,8 +95,13 @@ export function AddProviderModal({ providerManager, editingProvider, onClose, on
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{isEditing ? '编辑 AI 提供商' : '添加 AI 提供商'}</h2>
-          <button className="btn btn-icon" onClick={onClose}>✕</button>
+          <h2>
+            <Sparkles className="ui-icon" aria-hidden="true" />
+            {isEditing ? '编辑 AI 提供商' : '添加 AI 提供商'}
+          </h2>
+          <button className="btn btn-icon" onClick={onClose}>
+            <X className="ui-icon" aria-hidden="true" />
+          </button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -152,9 +158,11 @@ export function AddProviderModal({ providerManager, editingProvider, onClose, on
 
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
+              <X className="ui-icon" aria-hidden="true" />
               取消
             </button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
+              <Save className="ui-icon" aria-hidden="true" />
               {loading ? '保存中...' : '保存'}
             </button>
           </div>

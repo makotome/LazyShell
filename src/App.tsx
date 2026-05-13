@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { ChevronDown, ChevronUp, PanelLeft, Plus, Server, Settings as SettingsIcon, TerminalSquare } from 'lucide-react';
 import { AIProviderManager, createProvider } from './providers/aiProvider';
 import { AIChat } from './components/AIChat';
 import { Terminal } from './components/Terminal';
@@ -677,7 +678,10 @@ function App() {
     <div className="app">
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
-          <h1 className="app-title">LazyShell</h1>
+          <h1 className="app-title">
+            <TerminalSquare className="app-title-icon" aria-hidden="true" />
+            <span>LazyShell</span>
+          </h1>
         </div>
         <div className="sidebar-content">
           <div className="sidebar-status-section">
@@ -693,9 +697,16 @@ function App() {
               type="button"
               onClick={() => setIsServerListExpanded(prev => !prev)}
             >
-              <span className="sidebar-section-title">服务器</span>
+              <span className="sidebar-section-title">
+                <Server className="ui-icon" aria-hidden="true" />
+                服务器
+              </span>
               <span className="sidebar-section-meta">{servers.length} 台</span>
-              <span className="sidebar-section-caret">{isServerListExpanded ? '▾' : '▴'}</span>
+              <span className="sidebar-section-caret">
+                {isServerListExpanded
+                  ? <ChevronDown className="ui-icon" aria-hidden="true" />
+                  : <ChevronUp className="ui-icon" aria-hidden="true" />}
+              </span>
             </button>
             <div className={`sidebar-list-panel ${isServerListExpanded ? 'expanded' : ''}`}>
               <ServerList
@@ -714,11 +725,13 @@ function App() {
               className={`btn btn-primary btn-full ${isServerFormOpen ? 'sidebar-add-btn-open' : ''}`}
               onClick={() => setIsServerFormOpen(prev => !prev)}
             >
+              <Plus className="ui-icon" aria-hidden="true" />
               {isServerFormOpen ? '收起添加服务器' : '添加服务器'}
             </button>
           </div>
           <div className="sidebar-footer">
             <button className="btn btn-secondary btn-full" onClick={() => setShowSettings(true)} title="设置">
+              <SettingsIcon className="ui-icon" aria-hidden="true" />
               设置
             </button>
           </div>
@@ -752,15 +765,18 @@ function App() {
                   <div className="terminal-empty-actions">
                     {servers.length > 0 ? (
                       <button type="button" className="btn btn-primary btn-small" onClick={handleRevealServers}>
+                        <PanelLeft className="ui-icon" aria-hidden="true" />
                         显示服务器列表
                       </button>
                     ) : (
                       <button type="button" className="btn btn-primary btn-small" onClick={handleRevealServers}>
+                        <Plus className="ui-icon" aria-hidden="true" />
                         添加第一台服务器
                       </button>
                     )}
                     {servers.length > 0 && (
                       <button type="button" className="btn btn-secondary btn-small" onClick={handleNewTab}>
+                        <TerminalSquare className="ui-icon" aria-hidden="true" />
                         打开默认服务器
                       </button>
                     )}

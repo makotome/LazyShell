@@ -1,3 +1,5 @@
+import { Archive, ClipboardList, File, FileText, Globe, HardDrive, Package, Play, Settings, Star, Trash2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { CommandCard as CommandCardType, DangerLevel } from '../types';
 
 interface CommandCardProps {
@@ -19,28 +21,30 @@ const dangerLabels: Record<DangerLevel, string> = {
   red: '危险',
 };
 
-const categoryIcons: Record<string, string> = {
-  file: '📁',
-  text: '📝',
-  system: '⚙️',
-  network: '🌐',
-  process: '📊',
-  archive: '📦',
-  disk: '💾',
-  package: '📦',
-  other: '📋',
+const categoryIcons: Record<string, LucideIcon> = {
+  file: File,
+  text: FileText,
+  system: Settings,
+  network: Globe,
+  process: ClipboardList,
+  archive: Archive,
+  disk: HardDrive,
+  package: Package,
+  other: ClipboardList,
 };
 
 export function CommandCard({ card, onExecute, onAddTo常用, onDelete }: CommandCardProps) {
   const dangerLevel = card.dangerLevel as DangerLevel;
   const color = dangerColors[dangerLevel] || dangerColors.yellow;
   const label = dangerLabels[dangerLevel] || '谨慎';
-  const icon = categoryIcons[card.category] || categoryIcons.other;
+  const Icon = categoryIcons[card.category] || categoryIcons.other;
 
   return (
     <div className="command-card" style={{ borderLeftColor: color }}>
       <div className="command-card-header">
-        <span className="command-card-icon">{icon}</span>
+        <span className="command-card-icon">
+          <Icon className="ui-icon" aria-hidden="true" />
+        </span>
         <span className="command-card-category">{label}</span>
         <span className="command-card-description">{card.naturalLanguage}</span>
       </div>
@@ -59,7 +63,8 @@ export function CommandCard({ card, onExecute, onAddTo常用, onDelete }: Comman
             onClick={() => onAddTo常用(card)}
             title="添加到常用"
           >
-            ⭐ 添加
+            <Star className="ui-icon" aria-hidden="true" />
+            添加
           </button>
         )}
         {onExecute && (
@@ -67,7 +72,8 @@ export function CommandCard({ card, onExecute, onAddTo常用, onDelete }: Comman
             className={`btn ${dangerLevel === 'red' ? 'btn-danger' : dangerLevel === 'yellow' ? 'btn-warning' : 'btn-primary'}`}
             onClick={() => onExecute(card.command)}
           >
-            ▶ 执行
+            <Play className="ui-icon" aria-hidden="true" />
+            执行
           </button>
         )}
         {onDelete && (
@@ -76,7 +82,7 @@ export function CommandCard({ card, onExecute, onAddTo常用, onDelete }: Comman
             onClick={() => onDelete(card.id)}
             title="删除"
           >
-            🗑️
+            <Trash2 className="ui-icon" aria-hidden="true" />
           </button>
         )}
       </div>

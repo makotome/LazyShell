@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { KeyRound, ShieldCheck, Trash2, X } from 'lucide-react';
 import './UnlockScreen.css';
 
 interface UnlockScreenProps {
@@ -85,8 +86,13 @@ export function UnlockScreen({ onUnlock, onReset }: UnlockScreenProps) {
     <div className="unlock-screen">
       <div className="unlock-container">
         <div className="unlock-header">
-          <div className="unlock-kicker">Mission Control</div>
-          <div className="unlock-icon">▣</div>
+          <div className="unlock-kicker">
+            <ShieldCheck className="ui-icon" aria-hidden="true" />
+            Mission Control
+          </div>
+          <div className="unlock-icon">
+            <ShieldCheck className="ui-icon" aria-hidden="true" />
+          </div>
           <h1 className="unlock-title">LazyShell</h1>
           <p className="unlock-subtitle">
             {isSetupMode ? '设置主密码以保护您的服务器配置' : '请输入主密码解锁'}
@@ -130,6 +136,7 @@ export function UnlockScreen({ onUnlock, onReset }: UnlockScreenProps) {
             className="unlock-button"
             disabled={isLoading || !password}
           >
+            <KeyRound className="ui-icon" aria-hidden="true" />
             {isLoading ? '处理中...' : (isSetupMode ? '设置密码' : '解锁')}
           </button>
         </form>
@@ -144,6 +151,7 @@ export function UnlockScreen({ onUnlock, onReset }: UnlockScreenProps) {
                 onClick={() => setIsConfirmingReset(true)}
                 disabled={isLoading}
               >
+                <Trash2 className="ui-icon" aria-hidden="true" />
                 忘记密码并清空本地数据
               </button>
             ) : (
@@ -156,6 +164,7 @@ export function UnlockScreen({ onUnlock, onReset }: UnlockScreenProps) {
                     onClick={() => void handleResetConfirm()}
                     disabled={isLoading}
                   >
+                    <Trash2 className="ui-icon" aria-hidden="true" />
                     确认删除
                   </button>
                   <button
@@ -164,6 +173,7 @@ export function UnlockScreen({ onUnlock, onReset }: UnlockScreenProps) {
                     onClick={() => setIsConfirmingReset(false)}
                     disabled={isLoading}
                   >
+                    <X className="ui-icon" aria-hidden="true" />
                     取消
                   </button>
                 </div>

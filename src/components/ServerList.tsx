@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Check, CornerDownRight, Copy, Pencil, Plus, Search, Server, Trash2, X } from 'lucide-react';
 import type { ServerInfo, AddServerRequest, AuthMethodInput, EditServerRequest } from '../types';
 
 interface ServerListProps {
@@ -192,7 +193,10 @@ export function ServerList({
     <div className="server-list">
       {showHeader && (
         <div className="server-list-header">
-          <h2>服务器</h2>
+          <h2>
+            <Server className="ui-icon" aria-hidden="true" />
+            服务器
+          </h2>
           <button
             className="btn btn-small"
             onClick={() => {
@@ -203,7 +207,17 @@ export function ServerList({
               }
             }}
           >
-            {isAddFormOpen ? (editingServerId ? '取消编辑' : '取消') : '+ 添加'}
+            {isAddFormOpen ? (
+              <>
+                <X className="ui-icon" aria-hidden="true" />
+                {editingServerId ? '取消编辑' : '取消'}
+              </>
+            ) : (
+              <>
+                <Plus className="ui-icon" aria-hidden="true" />
+                添加
+              </>
+            )}
           </button>
         </div>
       )}
@@ -214,6 +228,7 @@ export function ServerList({
       {servers.length > 0 && (
         <div className="server-list-toolbar">
           <div className="server-list-search">
+            <Search className="server-search-icon" aria-hidden="true" />
             <input
               type="text"
               value={searchQuery}
@@ -228,7 +243,7 @@ export function ServerList({
                 onClick={() => setSearchQuery('')}
                 title="清空搜索"
               >
-                ✕
+                <X className="ui-icon" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -253,7 +268,10 @@ export function ServerList({
         >
           <div className="server-form-modal" onClick={(e) => e.stopPropagation()}>
             <div className="server-form-header">
-              <h3>{formTitle}</h3>
+              <h3>
+                <Server className="ui-icon" aria-hidden="true" />
+                {formTitle}
+              </h3>
               <button
                 type="button"
                 className="btn btn-icon"
@@ -266,7 +284,7 @@ export function ServerList({
                 }}
                 title="关闭"
               >
-                ✕
+                <X className="ui-icon" aria-hidden="true" />
               </button>
             </div>
 
@@ -386,9 +404,13 @@ export function ServerList({
                     }
                   }}
                 >
+                  <X className="ui-icon" aria-hidden="true" />
                   取消
                 </button>
                 <button type="submit" className="btn btn-primary">
+                  {editingServerId
+                    ? <Check className="ui-icon" aria-hidden="true" />
+                    : <Plus className="ui-icon" aria-hidden="true" />}
                   {editingServerId ? '保存修改' : '添加服务器'}
                 </button>
               </div>
@@ -425,7 +447,9 @@ export function ServerList({
                   title={copiedHost === server.host ? '已复制' : '复制主机地址'}
                   aria-label={copiedHost === server.host ? '已复制主机地址' : '复制主机地址'}
                 >
-                  {copiedHost === server.host ? '✓' : '⧉'}
+                  {copiedHost === server.host
+                    ? <Check className="ui-icon" aria-hidden="true" />
+                    : <Copy className="ui-icon" aria-hidden="true" />}
                 </button>
                 <button
                   type="button"
@@ -437,7 +461,7 @@ export function ServerList({
                   title="连接服务器"
                   aria-label="连接服务器"
                 >
-                  ↵
+                  <CornerDownRight className="ui-icon" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -449,7 +473,7 @@ export function ServerList({
                   title="编辑"
                   aria-label="编辑服务器"
                 >
-                  ✎
+                  <Pencil className="ui-icon" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -461,7 +485,7 @@ export function ServerList({
                   title="删除"
                   aria-label="删除服务器"
                 >
-                  ×
+                  <Trash2 className="ui-icon" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -487,7 +511,10 @@ export function ServerList({
         <div className="modal-overlay" onClick={() => setPendingDeleteServer(null)}>
           <div className="modal-content server-delete-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>确认删除服务器</h2>
+              <h2>
+                <Trash2 className="ui-icon danger-icon" aria-hidden="true" />
+                确认删除服务器
+              </h2>
             </div>
             <div className="server-delete-modal-body">
               <p className="server-delete-modal-text">
@@ -498,6 +525,7 @@ export function ServerList({
               </p>
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setPendingDeleteServer(null)}>
+                  <X className="ui-icon" aria-hidden="true" />
                   取消
                 </button>
                 <button
@@ -507,6 +535,7 @@ export function ServerList({
                     void handleRemoveServer(pendingDeleteServer.id);
                   }}
                 >
+                  <Trash2 className="ui-icon" aria-hidden="true" />
                   确认删除
                 </button>
               </div>

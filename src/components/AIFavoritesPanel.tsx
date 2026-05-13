@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { ChevronDown, ChevronRight, Play, Save, Star, Trash2, Wrench, X } from 'lucide-react';
 import type { CommandCard, CommandCategory } from '../types';
 
 const CATEGORY_LABELS: Record<CommandCategory, string> = {
@@ -43,7 +44,12 @@ export const AIFavoritesPanel = memo(function AIFavoritesPanel({
 }: AIFavoritesPanelProps) {
   return (
     <div className="commands-panel">
-      <div className="panel-header">常用命令</div>
+      <div className="panel-header">
+        <span className="panel-title-with-icon">
+          <Star className="ui-icon" aria-hidden="true" />
+          常用命令
+        </span>
+      </div>
       {executionEditor && (
         <div className="command-editor-bar">
           <div className="command-editor-header">
@@ -58,9 +64,13 @@ export const AIFavoritesPanel = memo(function AIFavoritesPanel({
           />
           <div className="card-actions">
             <button className="btn btn-primary btn-small" onClick={onExecutionEditorRun} disabled={!executionEditor.command.trim()}>
+              <Play className="ui-icon" aria-hidden="true" />
               执行调整后的命令
             </button>
-            <button className="btn btn-secondary btn-small" onClick={onExecutionEditorClose}>取消</button>
+            <button className="btn btn-secondary btn-small" onClick={onExecutionEditorClose}>
+              <X className="ui-icon" aria-hidden="true" />
+              取消
+            </button>
           </div>
         </div>
       )}
@@ -74,7 +84,11 @@ export const AIFavoritesPanel = memo(function AIFavoritesPanel({
           {Array.from(groupedCards.entries()).map(([category, cards]) => (
             <div key={category} className="category-group">
               <div className="category-header" onClick={() => onToggleCategory(category)}>
-                <span className="category-toggle">{collapsedCategories.has(category) ? '▶' : '▼'}</span>
+                <span className="category-toggle">
+                  {collapsedCategories.has(category)
+                    ? <ChevronRight className="ui-icon" aria-hidden="true" />
+                    : <ChevronDown className="ui-icon" aria-hidden="true" />}
+                </span>
                 <span className="category-name">{CATEGORY_LABELS[category] || category}</span>
                 <span className="category-count">{cards.length}</span>
               </div>
@@ -97,12 +111,17 @@ export const AIFavoritesPanel = memo(function AIFavoritesPanel({
                           </div>
                           <div className="card-actions">
                             <button className={`btn ${card.dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`} onClick={() => onSave(card, true)} disabled={!editingCardDraft.command.trim()}>
+                              <Play className="ui-icon" aria-hidden="true" />
                               保存并执行
                             </button>
                             <button className="btn btn-secondary" onClick={() => onSave(card, false)} disabled={!editingCardDraft.command.trim()}>
+                              <Save className="ui-icon" aria-hidden="true" />
                               保存
                             </button>
-                            <button className="btn btn-secondary" onClick={onEditCancel}>取消</button>
+                            <button className="btn btn-secondary" onClick={onEditCancel}>
+                              <X className="ui-icon" aria-hidden="true" />
+                              取消
+                            </button>
                           </div>
                         </>
                       ) : (
@@ -112,9 +131,18 @@ export const AIFavoritesPanel = memo(function AIFavoritesPanel({
                             <code>{card.command}</code>
                           </div>
                           <div className="card-actions">
-                            <button className={`btn ${card.dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`} onClick={() => onExecute(card)}>执行</button>
-                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onEditStart(card)}>编辑</button>
-                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onRemove(card.id)}>删除</button>
+                            <button className={`btn ${card.dangerLevel === 'red' ? 'btn-danger' : 'btn-primary'}`} onClick={() => onExecute(card)}>
+                              <Play className="ui-icon" aria-hidden="true" />
+                              执行
+                            </button>
+                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onEditStart(card)}>
+                              <Wrench className="ui-icon" aria-hidden="true" />
+                              编辑
+                            </button>
+                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onRemove(card.id)}>
+                              <Trash2 className="ui-icon" aria-hidden="true" />
+                              删除
+                            </button>
                           </div>
                         </>
                       )}

@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
+import { ChevronDown, ChevronRight, Clipboard, Library, Package, Play, Star, Wrench, X } from 'lucide-react';
 import type { BuiltinCommand } from '../types';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -76,7 +77,12 @@ export const AIBuiltinPanel = memo(function AIBuiltinPanel({
 
   return (
     <div className="commands-panel" ref={panelRef}>
-      <div className="panel-header">{title} ({builtinCommandsCount})</div>
+      <div className="panel-header">
+        <span className="panel-title-with-icon">
+          {isOpenclawPanel ? <Package className="ui-icon" aria-hidden="true" /> : <Library className="ui-icon" aria-hidden="true" />}
+          {title} ({builtinCommandsCount})
+        </span>
+      </div>
       {executionEditor && (
         <div className="command-editor-bar">
           <div className="command-editor-header">
@@ -92,9 +98,13 @@ export const AIBuiltinPanel = memo(function AIBuiltinPanel({
           />
           <div className="card-actions">
             <button className="btn btn-primary btn-small" onClick={onExecutionEditorRun} disabled={!executionEditor.command.trim()}>
+              <Play className="ui-icon" aria-hidden="true" />
               执行调整后的命令
             </button>
-            <button className="btn btn-secondary btn-small" onClick={onExecutionEditorClose}>取消</button>
+            <button className="btn btn-secondary btn-small" onClick={onExecutionEditorClose}>
+              <X className="ui-icon" aria-hidden="true" />
+              取消
+            </button>
           </div>
         </div>
       )}
@@ -105,7 +115,11 @@ export const AIBuiltinPanel = memo(function AIBuiltinPanel({
           {Array.from(groupedBuiltinCommands.entries()).map(([category, cmds]) => (
             <div key={category} className="category-group">
               <div className="category-header" onClick={() => onToggleCategory(`builtin-${category}`)}>
-                <span className="category-toggle">{collapsedCategories.has(`builtin-${category}`) ? '▶' : '▼'}</span>
+                <span className="category-toggle">
+                  {collapsedCategories.has(`builtin-${category}`)
+                    ? <ChevronRight className="ui-icon" aria-hidden="true" />
+                    : <ChevronDown className="ui-icon" aria-hidden="true" />}
+                </span>
                 <span className="category-name">{CATEGORY_LABELS[category] || category}</span>
                 <span className="category-count">{cmds.length}</span>
               </div>
@@ -126,12 +140,24 @@ export const AIBuiltinPanel = memo(function AIBuiltinPanel({
                       )}
                       <div className="card-actions">
                         {cmd.surface === 'chat' ? (
-                          <button className="btn btn-primary" onClick={() => onCopy(cmd)}>复制</button>
+                          <button className="btn btn-primary" onClick={() => onCopy(cmd)}>
+                            <Clipboard className="ui-icon" aria-hidden="true" />
+                            复制
+                          </button>
                         ) : (
                           <>
-                            <button className="btn btn-primary" onClick={() => onExecute(cmd)}>执行</button>
-                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onEdit(cmd)}>调整</button>
-                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onSave(cmd)}>收藏</button>
+                            <button className="btn btn-primary" onClick={() => onExecute(cmd)}>
+                              <Play className="ui-icon" aria-hidden="true" />
+                              执行
+                            </button>
+                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onEdit(cmd)}>
+                              <Wrench className="ui-icon" aria-hidden="true" />
+                              调整
+                            </button>
+                            <button className="btn btn-secondary btn-small btn-chip" onClick={() => onSave(cmd)}>
+                              <Star className="ui-icon" aria-hidden="true" />
+                              收藏
+                            </button>
                           </>
                         )}
                       </div>

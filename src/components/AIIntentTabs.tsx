@@ -1,3 +1,5 @@
+import { SlidersHorizontal } from 'lucide-react';
+
 export type AIInputMode = 'execute' | 'diagnose' | 'explain' | 'script' | 'answer';
 
 interface AIIntentTabsProps {
@@ -16,7 +18,10 @@ const MODE_OPTIONS: Array<{ value: AIInputMode; label: string }> = [
 export function AIIntentTabs({ value, onChange }: AIIntentTabsProps) {
   return (
     <label className="ai-intent-select-wrap">
-      <span className="ai-intent-select-label">模式</span>
+      <span className="ai-intent-select-label">
+        <SlidersHorizontal className="ui-icon" aria-hidden="true" />
+        模式
+      </span>
       <select
         className="ai-intent-select"
         value={value}

@@ -1,4 +1,5 @@
 import { memo, useState } from 'react';
+import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import type { AIProviderManager } from '../providers/aiProvider';
 import type { ManagedProviderInfo } from '../providers/aiProvider';
 import { AddProviderModal } from './AddProviderModal';
@@ -48,8 +49,14 @@ export const ProviderSelector = memo(function ProviderSelector({ providerManager
     return (
       <div className="provider-selector">
         <div className="provider-selector-header">
-          <span className="provider-selector-title">AI 提供商</span>
-          <button className="btn btn-small" onClick={handleAddProvider}>+ 添加</button>
+          <span className="provider-selector-title">
+            <Sparkles className="ui-icon" aria-hidden="true" />
+            AI 提供商
+          </span>
+          <button className="btn btn-small" onClick={handleAddProvider}>
+            <Plus className="ui-icon" aria-hidden="true" />
+            添加
+          </button>
         </div>
         <div className="provider-empty">
           <span>暂未配置 AI 提供商</span>
@@ -70,8 +77,14 @@ export const ProviderSelector = memo(function ProviderSelector({ providerManager
   return (
     <div className="provider-selector">
       <div className="provider-selector-header">
-        <span className="provider-selector-title">AI 提供商</span>
-        <button className="btn btn-small" onClick={handleAddProvider}>+ 添加</button>
+        <span className="provider-selector-title">
+          <Sparkles className="ui-icon" aria-hidden="true" />
+          AI 提供商
+        </span>
+        <button className="btn btn-small" onClick={handleAddProvider}>
+          <Plus className="ui-icon" aria-hidden="true" />
+          添加
+        </button>
       </div>
       <div className="provider-cards">
         {providers.map((provider) => (
@@ -95,14 +108,14 @@ export const ProviderSelector = memo(function ProviderSelector({ providerManager
                 onClick={(e) => handleEditProvider(provider, e)}
                 title="编辑"
               >
-                ✏️
+                <Pencil className="ui-icon" aria-hidden="true" />
               </button>
               <button
                 className="btn btn-icon btn-small btn-danger"
                 onClick={(e) => handleDeleteProvider(provider.id, e)}
                 title="删除"
               >
-                🗑️
+                <Trash2 className="ui-icon" aria-hidden="true" />
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { KeyRound, Save, Settings as SettingsIcon, X } from 'lucide-react';
 
 interface SettingsProps {
   onClose: () => void;
@@ -39,9 +40,12 @@ export function Settings({ onClose }: SettingsProps) {
     <div className="settings-overlay">
       <div className="settings-modal">
         <div className="settings-header">
-          <h2>设置</h2>
+          <h2>
+            <SettingsIcon className="ui-icon" aria-hidden="true" />
+            设置
+          </h2>
           <button className="btn btn-icon" onClick={onClose}>
-            ✕
+            <X className="ui-icon" aria-hidden="true" />
           </button>
         </div>
 
@@ -75,6 +79,7 @@ export function Settings({ onClose }: SettingsProps) {
             </div>
 
             <button className="btn btn-primary btn-full" onClick={handleSetMasterPassword}>
+              {masterPassword ? <Save className="ui-icon" aria-hidden="true" /> : <KeyRound className="ui-icon" aria-hidden="true" />}
               设置主密码
             </button>
           </div>

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
+import { FolderOpen, RefreshCw } from 'lucide-react';
 import { openFileBrowserWindow } from '../utils/remoteWindows';
 import type { PendingAiTerminalExecution, ShellSendResult, TerminalConnectionState } from '../types';
 import 'xterm/css/xterm.css';
@@ -766,34 +767,34 @@ export function Terminal({
     if (!terminalRef.current) return;
     // Create xterm instance
     const xterm = new XTerm({
-      fontSize: 14,
-      lineHeight: 1.34,
-      fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Roboto Mono", monospace',
+      fontSize: 13.5,
+      lineHeight: 1.42,
+      fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Code", monospace',
       cursorBlink: true,
       cursorStyle: 'block',
       scrollback: 10000,
       theme: {
-        background: '#070c12',
-        foreground: '#dfe7ee',
-        cursor: '#d8e2eb',
-        cursorAccent: '#071019',
-        selectionBackground: 'rgba(174, 189, 202, 0.2)',
-        black: '#070c12',
-        red: '#cd3131',
-        green: '#4fb887',
-        yellow: '#e5e510',
-        blue: '#8f9fb2',
-        magenta: '#bc3fbc',
-        cyan: '#99aabf',
-        white: '#e7ebf0',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
-        brightGreen: '#76caa1',
-        brightYellow: '#f5f543',
-        brightBlue: '#c5d2df',
-        brightMagenta: '#d670d6',
-        brightCyan: '#d6e1ec',
-        brightWhite: '#ffffff',
+        background: '#030912',
+        foreground: '#cddbeb',
+        cursor: '#62b7ff',
+        cursorAccent: '#03101c',
+        selectionBackground: 'rgba(98, 183, 255, 0.18)',
+        black: '#030912',
+        red: '#e97771',
+        green: '#45c5a7',
+        yellow: '#d9ad50',
+        blue: '#6faef7',
+        magenta: '#9d8cff',
+        cyan: '#6ed7e8',
+        white: '#d7e3f0',
+        brightBlack: '#61778c',
+        brightRed: '#ff9a92',
+        brightGreen: '#72dcc3',
+        brightYellow: '#efc76f',
+        brightBlue: '#9acbff',
+        brightMagenta: '#beb2ff',
+        brightCyan: '#9eeaf5',
+        brightWhite: '#f4f8ff',
       },
     });
 
@@ -1101,6 +1102,7 @@ export function Terminal({
               title="打开文件浏览器"
               aria-label="打开文件浏览器"
             >
+              <FolderOpen className="ui-icon" aria-hidden="true" />
               Files
             </button>
           </div>
@@ -1139,6 +1141,7 @@ export function Terminal({
                     className="btn btn-secondary btn-small"
                     onClick={() => { void handleReconnect(); }}
                   >
+                    <RefreshCw className="ui-icon" aria-hidden="true" />
                     立即重连
                   </button>
                 </div>
@@ -1158,6 +1161,7 @@ export function Terminal({
                   className="btn btn-primary btn-small"
                   onClick={() => { void handleReconnect(); }}
                 >
+                  <RefreshCw className="ui-icon" aria-hidden="true" />
                   立即重连
                 </button>
               </div>

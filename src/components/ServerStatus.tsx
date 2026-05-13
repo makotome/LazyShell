@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Activity, ChevronDown, ChevronUp, HardDrive, MemoryStick, Network, Server } from 'lucide-react';
 
 interface ServerStatusProps {
   serverId: string | null;
@@ -109,7 +110,10 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
       <div className="server-status">
         <div className="status-header">
           <div className="status-header-copy">
-            <span className="status-title">服务器状态</span>
+            <span className="status-title">
+              <Activity className="ui-icon" aria-hidden="true" />
+              服务器状态
+            </span>
             <span className="status-subtitle">未连接服务器</span>
           </div>
         </div>
@@ -144,31 +148,43 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
         <div className="status-header-copy">
           <span className="status-title-row">
             <span className={`status-health-dot ${healthLevel}`} aria-hidden="true" />
+            <Server className="ui-icon status-title-icon" aria-hidden="true" />
             <span className="status-title">{serverName || '当前服务器'}</span>
           </span>
           <span className="status-subtitle">{serverHost || '未知地址'}</span>
         </div>
         <div className="status-header-meta">
           <span className={`status-health-label ${healthLevel}`}>{healthLabel}</span>
-          <span className="status-toggle">{isExpanded ? '⌃' : '⌄'}</span>
+          <span className="status-toggle">
+            {isExpanded ? <ChevronUp className="ui-icon" aria-hidden="true" /> : <ChevronDown className="ui-icon" aria-hidden="true" />}
+          </span>
         </div>
       </div>
 
       <div className="status-summary-row">
         <div className="status-summary-item">
-          <span className="status-summary-label">MEM</span>
+          <span className="status-summary-label">
+            <MemoryStick className="ui-icon" aria-hidden="true" />
+            MEM
+          </span>
           <span className={`status-summary-value ${memoryPercent > 90 ? 'danger' : memoryPercent > 70 ? 'warning' : ''}`}>
             {status ? `${memoryPercent}%` : '--'}
           </span>
         </div>
         <div className="status-summary-item">
-          <span className="status-summary-label">DISK</span>
+          <span className="status-summary-label">
+            <HardDrive className="ui-icon" aria-hidden="true" />
+            DISK
+          </span>
           <span className={`status-summary-value ${diskPercent > 90 ? 'danger' : diskPercent > 70 ? 'warning' : ''}`}>
             {primaryDisk ? `${diskPercent}%` : '--'}
           </span>
         </div>
         <div className="status-summary-item">
-          <span className="status-summary-label">NET</span>
+          <span className="status-summary-label">
+            <Network className="ui-icon" aria-hidden="true" />
+            NET
+          </span>
           <span className="status-summary-value">{status ? `${formatBytes(networkTotal)}/s` : '--'}</span>
         </div>
       </div>
@@ -177,7 +193,10 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
         <div className="status-content">
           {/* Disk Usage */}
           <div className="status-section">
-            <h4 className="section-title">磁盘使用</h4>
+            <h4 className="section-title">
+              <HardDrive className="ui-icon" aria-hidden="true" />
+              磁盘使用
+            </h4>
             <div className="disk-list">
               {status.disk.length === 0 ? (
                 <div className="status-empty">无数据</div>
@@ -205,7 +224,10 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
 
           {/* Memory Usage */}
           <div className="status-section">
-            <h4 className="section-title">内存使用</h4>
+            <h4 className="section-title">
+              <MemoryStick className="ui-icon" aria-hidden="true" />
+              内存使用
+            </h4>
             <div className="memory-item">
               <div className="progress-bar">
                 <div
@@ -222,7 +244,10 @@ export function ServerStatus({ serverId, serverName, serverHost }: ServerStatusP
           {/* Network Stats */}
           {status.network.length > 0 && (
             <div className="status-section">
-              <h4 className="section-title">网络</h4>
+              <h4 className="section-title">
+                <Network className="ui-icon" aria-hidden="true" />
+                网络
+              </h4>
               <div className="network-list">
                 {status.network.map((net, idx) => (
                   <div key={idx} className="network-item">

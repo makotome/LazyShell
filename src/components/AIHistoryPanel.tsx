@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { History, Play, Scissors, Search, Star, Trash2, Wrench, X } from 'lucide-react';
 import type { CommandHistory } from '../types';
 
 interface AIHistoryPanelProps {
@@ -53,7 +54,10 @@ export const AIHistoryPanel = memo(function AIHistoryPanel({
   return (
     <div className="commands-panel">
       <div className="panel-header panel-header-actions">
-        <span>历史命令 ({entries.length})</span>
+        <span className="panel-title-with-icon">
+          <History className="ui-icon" aria-hidden="true" />
+          历史命令 ({entries.length})
+        </span>
         <div className="panel-actions">
           <select
             className="history-trim-select"
@@ -64,16 +68,28 @@ export const AIHistoryPanel = memo(function AIHistoryPanel({
             <option value="100">最近 100 条</option>
             <option value="300">最近 300 条</option>
           </select>
-          <button className="btn btn-secondary btn-small" onClick={onTrimHistory}>裁剪历史</button>
-          <button className="btn btn-danger btn-small" onClick={onClearHistoryRequest}>清空历史</button>
+          <button className="btn btn-secondary btn-small" onClick={onTrimHistory}>
+            <Scissors className="ui-icon" aria-hidden="true" />
+            裁剪历史
+          </button>
+          <button className="btn btn-danger btn-small" onClick={onClearHistoryRequest}>
+            <Trash2 className="ui-icon" aria-hidden="true" />
+            清空历史
+          </button>
         </div>
       </div>
       {isConfirmingClearHistory && (
         <div className="history-confirm-bar">
           <span className="history-confirm-text">确定要清空当前服务器的所有命令历史吗？此操作不可撤销。</span>
           <div className="history-confirm-actions">
-            <button className="btn btn-danger btn-small" onClick={onClearHistoryConfirm}>确认清空</button>
-            <button className="btn btn-secondary btn-small" onClick={onClearHistoryCancel}>取消</button>
+            <button className="btn btn-danger btn-small" onClick={onClearHistoryConfirm}>
+              <Trash2 className="ui-icon" aria-hidden="true" />
+              确认清空
+            </button>
+            <button className="btn btn-secondary btn-small" onClick={onClearHistoryCancel}>
+              <X className="ui-icon" aria-hidden="true" />
+              取消
+            </button>
           </div>
         </div>
       )}
@@ -91,13 +107,18 @@ export const AIHistoryPanel = memo(function AIHistoryPanel({
           />
           <div className="card-actions">
             <button className="btn btn-primary btn-small" onClick={onExecutionEditorRun} disabled={!executionEditor.command.trim()}>
+              <Play className="ui-icon" aria-hidden="true" />
               执行调整后的命令
             </button>
-            <button className="btn btn-secondary btn-small" onClick={onExecutionEditorClose}>取消</button>
+            <button className="btn btn-secondary btn-small" onClick={onExecutionEditorClose}>
+              <X className="ui-icon" aria-hidden="true" />
+              取消
+            </button>
           </div>
         </div>
       )}
       <div className="history-toolbar">
+        <Search className="history-search-icon" aria-hidden="true" />
         <input
           className="history-search"
           type="text"
@@ -145,9 +166,18 @@ export const AIHistoryPanel = memo(function AIHistoryPanel({
                 </div>
               )}
               <div className="card-actions">
-                <button className="btn btn-primary" onClick={() => onExecute(entry)}>执行</button>
-                <button className="btn btn-secondary btn-small btn-chip" onClick={() => onEdit(entry)}>调整</button>
-                <button className="btn btn-secondary btn-small btn-chip" onClick={() => onSave(entry)}>收藏</button>
+                <button className="btn btn-primary" onClick={() => onExecute(entry)}>
+                  <Play className="ui-icon" aria-hidden="true" />
+                  执行
+                </button>
+                <button className="btn btn-secondary btn-small btn-chip" onClick={() => onEdit(entry)}>
+                  <Wrench className="ui-icon" aria-hidden="true" />
+                  调整
+                </button>
+                <button className="btn btn-secondary btn-small btn-chip" onClick={() => onSave(entry)}>
+                  <Star className="ui-icon" aria-hidden="true" />
+                  收藏
+                </button>
               </div>
             </div>
           ))}

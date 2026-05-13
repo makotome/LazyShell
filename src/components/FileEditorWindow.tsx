@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import CodeMirror from '@uiw/react-codemirror';
+import { FileCode2, Save, X } from 'lucide-react';
 import { json } from '@codemirror/lang-json';
 import { yaml } from '@codemirror/lang-yaml';
 import { StreamLanguage } from '@codemirror/language';
@@ -38,24 +39,24 @@ function getLanguageExtensions(path: string): Extension[] {
 
 const macDarkEditorTheme = EditorView.theme({
   '&': {
-    backgroundColor: '#15171c',
-    color: '#e1e6ec',
+    backgroundColor: '#06111d',
+    color: '#d9e7f5',
   },
   '.cm-content': {
-    caretColor: '#eef2f6',
+    caretColor: '#55b6ff',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: '#eef2f6',
+    borderLeftColor: '#55b6ff',
   },
   '.cm-activeLine': {
-    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    backgroundColor: 'rgba(74, 163, 255, 0.08)',
   },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-    backgroundColor: 'rgba(188, 200, 214, 0.28)',
+    backgroundColor: 'rgba(74, 163, 255, 0.24)',
   },
   '.cm-gutters': {
-    backgroundColor: '#111318',
-    color: '#7d8794',
+    backgroundColor: '#081827',
+    color: '#768aa1',
   },
 }, { dark: true });
 
@@ -158,7 +159,10 @@ export function FileEditorWindow({ serverId, serverName, path }: FileEditorWindo
       <div className="editor-window">
         <div className="editor-window-toolbar">
           <div className="editor-window-meta">
-            <span className="editor-window-kicker">Text Editor</span>
+            <span className="editor-window-kicker">
+              <FileCode2 className="ui-icon" aria-hidden="true" />
+              Text Editor
+            </span>
             <span className="editor-window-path" title={path}>{path}</span>
           </div>
           <div className="editor-window-actions">
@@ -166,9 +170,11 @@ export function FileEditorWindow({ serverId, serverName, path }: FileEditorWindo
               {isDirty ? '未保存修改' : '已保存'}
             </span>
             <button type="button" className="btn btn-secondary btn-small" onClick={() => { void getCurrentWindow().close(); }}>
+              <X className="ui-icon" aria-hidden="true" />
               关闭
             </button>
             <button type="button" className="btn btn-primary btn-small" onClick={() => { void handleSave(); }} disabled={!isDirty || saving || loading}>
+              <Save className="ui-icon" aria-hidden="true" />
               {saving ? '保存中...' : '保存'}
             </button>
           </div>

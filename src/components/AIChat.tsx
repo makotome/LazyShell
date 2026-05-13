@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { ChevronLeft, ChevronRight, History, Library, MessageSquare, Package, Play, Star, Wrench } from 'lucide-react';
 import type {
   ChatMessage,
   TerminalContext,
@@ -154,6 +155,7 @@ export function AIChat({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const tabScrollerRef = useRef<HTMLDivElement>(null);
   const draftPersistTimeoutRef = useRef<number | null>(null);
 
   const {
@@ -885,14 +887,51 @@ export function AIChat({
     }
   }, [onCommandHistoryClear, onCommandHistoryReload, serverId]);
 
+  const scrollTabBar = useCallback((direction: 'left' | 'right') => {
+    const scroller = tabScrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+
+    const firstTab = scroller.querySelector<HTMLElement>('.tab-btn');
+    const tabStep = firstTab ? firstTab.offsetWidth + 8 : 96;
+    scroller.scrollBy({
+      left: direction === 'left' ? -tabStep : tabStep,
+      behavior: 'smooth',
+    });
+  }, []);
+
   return (
     <div className="ai-chat">
       <div className="ai-chat-tabs">
-        <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>聊天</button>
-        <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>历史</button>
-        <button className={`tab-btn ${activeTab === 'commands' ? 'active' : ''}`} onClick={() => setActiveTab('commands')}>常用</button>
-        <button className={`tab-btn ${activeTab === 'builtin' ? 'active' : ''}`} onClick={() => setActiveTab('builtin')}>内置</button>
-        <button className={`tab-btn ${activeTab === 'openclaw' ? 'active' : ''}`} onClick={() => setActiveTab('openclaw')}>OPENCLAW</button>
+        <button type="button" className="ai-tab-scroll-btn" onClick={() => scrollTabBar('left')} aria-label="向左移动标签">
+          <ChevronLeft className="ui-icon" aria-hidden="true" />
+        </button>
+        <div className="ai-chat-tab-scroll" ref={tabScrollerRef}>
+          <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
+            <MessageSquare className="ui-icon" aria-hidden="true" />
+            聊天
+          </button>
+          <button className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
+            <History className="ui-icon" aria-hidden="true" />
+            历史
+          </button>
+          <button className={`tab-btn ${activeTab === 'commands' ? 'active' : ''}`} onClick={() => setActiveTab('commands')}>
+            <Star className="ui-icon" aria-hidden="true" />
+            常用
+          </button>
+          <button className={`tab-btn ${activeTab === 'builtin' ? 'active' : ''}`} onClick={() => setActiveTab('builtin')}>
+            <Library className="ui-icon" aria-hidden="true" />
+            内置
+          </button>
+          <button className={`tab-btn ${activeTab === 'openclaw' ? 'active' : ''}`} onClick={() => setActiveTab('openclaw')}>
+            <Package className="ui-icon" aria-hidden="true" />
+            OPENCLAW
+          </button>
+        </div>
+        <button type="button" className="ai-tab-scroll-btn" onClick={() => scrollTabBar('right')} aria-label="向右移动标签">
+          <ChevronRight className="ui-icon" aria-hidden="true" />
+        </button>
       </div>
 
       <div className="ai-chat-content">
@@ -938,9 +977,13 @@ export function AIChat({
                     />
                     <div className="card-actions">
                       <button className="btn btn-primary btn-small" onClick={handleExecutionEditorRun} disabled={!executionEditor.command.trim()}>
+                        <Play className="ui-icon" aria-hidden="true" />
                         执行调整后的命令
                       </button>
-                      <button className="btn btn-secondary btn-small" onClick={closeExecutionEditor}>取消</button>
+                      <button className="btn btn-secondary btn-small" onClick={closeExecutionEditor}>
+                        <Wrench className="ui-icon" aria-hidden="true" />
+                        取消
+                      </button>
                     </div>
                   </div>
                 </div>

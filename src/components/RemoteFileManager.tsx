@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ArrowUp, Check, ChevronDown, ChevronRight, Copy, Download, File, FilePlus, Folder, FolderPlus, FolderTree, Pencil, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import type { RemoteBrowserConnectionState, RemoteDirectoryPayload, RemoteEntry } from '../types';
 import { openFileEditorWindow } from '../utils/remoteWindows';
@@ -960,7 +961,9 @@ export function RemoteFileManager({
             disabled={node?.status === 'loading' || connectionState === 'checking' || connectionState === 'reconnecting'}
             aria-label={expanded ? '收起目录' : '展开目录'}
           >
-            {expanded ? '▾' : '▸'}
+            {expanded
+              ? <ChevronDown className="ui-icon" aria-hidden="true" />
+              : <ChevronRight className="ui-icon" aria-hidden="true" />}
           </button>
           <button
             type="button"
@@ -968,7 +971,9 @@ export function RemoteFileManager({
             onClick={() => { void handleSelectTreeNode(path); }}
             disabled={connectionState === 'checking' || connectionState === 'reconnecting'}
           >
-            <span className="remote-tree-icon">📁</span>
+            <span className="remote-tree-icon">
+              <Folder className="ui-icon" aria-hidden="true" />
+            </span>
             <span>{label}</span>
           </button>
         </div>
@@ -1029,6 +1034,7 @@ export function RemoteFileManager({
               onClick={() => { void handleNavigateUp(); }}
               disabled={!parentPath || isRemoteActionDisabled}
             >
+              <ArrowUp className="ui-icon" aria-hidden="true" />
               返回上一级
             </button>
             <button
@@ -1037,10 +1043,14 @@ export function RemoteFileManager({
               onClick={() => { void handleRefresh(); }}
               disabled={isRemoteActionDisabled}
             >
+              <RefreshCw className="ui-icon" aria-hidden="true" />
               刷新
             </button>
             <div className="remote-file-breadcrumb" title={currentPath}>
-              <span className="remote-file-breadcrumb-kicker">Remote Finder</span>
+              <span className="remote-file-breadcrumb-kicker">
+                <FolderTree className="ui-icon" aria-hidden="true" />
+                Remote Finder
+              </span>
               <span className="remote-file-breadcrumb-path">{currentPath}</span>
             </div>
           </div>
@@ -1051,6 +1061,7 @@ export function RemoteFileManager({
               onClick={() => { void handleUpload(); }}
               disabled={busyAction !== null || isConnectionBusy}
             >
+              <Upload className="ui-icon" aria-hidden="true" />
               {busyAction === 'upload' ? '上传中...' : '上传文件'}
             </button>
             <button
@@ -1059,6 +1070,7 @@ export function RemoteFileManager({
               onClick={() => { void handleDownload(); }}
               disabled={busyAction !== null || isConnectionBusy || !selectedEntry || isDirectory(selectedEntry)}
             >
+              <Download className="ui-icon" aria-hidden="true" />
               {busyAction === 'download' ? '下载中...' : '下载到本地'}
             </button>
           </div>
@@ -1077,6 +1089,7 @@ export function RemoteFileManager({
               </div>
               {(connectionState === 'error' || connectionState === 'manual_required' || showFastReconnectAction) && (
                 <button type="button" className="btn btn-secondary btn-small" onClick={() => { void handleRetryConnection(); }}>
+                  <RefreshCw className="ui-icon" aria-hidden="true" />
                   立即重连
                 </button>
               )}
@@ -1086,7 +1099,10 @@ export function RemoteFileManager({
 
         <div className="remote-file-shell remote-file-shell-window">
           <aside className="remote-file-sidebar">
-            <div className="remote-file-sidebar-header">文件系统</div>
+            <div className="remote-file-sidebar-header">
+              <FolderTree className="ui-icon" aria-hidden="true" />
+              文件系统
+            </div>
             <div className="remote-file-tree">
               {renderTreeNode('/', '/', 0)}
             </div>
@@ -1095,7 +1111,10 @@ export function RemoteFileManager({
           <section className="remote-file-content remote-file-content-single">
             <div className="remote-file-list-panel remote-file-list-panel-window">
               <div className="remote-file-panel-header">
-                <span>当前目录</span>
+                <span>
+                  <Folder className="ui-icon" aria-hidden="true" />
+                  当前目录
+                </span>
                 <span>{entries.length} 项</span>
               </div>
               <div className="remote-file-list-header">
@@ -1124,7 +1143,11 @@ export function RemoteFileManager({
                     disabled={isRemoteActionDisabled}
                   >
                     <span className="remote-file-name">
-                      <span className="remote-file-icon">{isDirectory(entry) ? '📁' : '📄'}</span>
+                      <span className="remote-file-icon">
+                        {isDirectory(entry)
+                          ? <Folder className="ui-icon" aria-hidden="true" />
+                          : <File className="ui-icon" aria-hidden="true" />}
+                      </span>
                       <span>{entry.name}</span>
                     </span>
                     <span>{entry.entryType === 'directory' ? '文件夹' : entry.isTextEditable ? '文本文件' : '文件'}</span>
@@ -1163,6 +1186,7 @@ export function RemoteFileManager({
               value: 'untitled.txt',
             })}
           >
+            <FilePlus className="ui-icon" aria-hidden="true" />
             新建文本文件
           </button>
           <button
@@ -1175,6 +1199,7 @@ export function RemoteFileManager({
               value: 'untitled-folder',
             })}
           >
+            <FolderPlus className="ui-icon" aria-hidden="true" />
             新建文件夹
           </button>
           <button
@@ -1195,12 +1220,15 @@ export function RemoteFileManager({
             }}
             disabled={!canCopyFile || isConnectionBusy}
           >
+            <Copy className="ui-icon" aria-hidden="true" />
             复制文件
           </button>
           <button type="button" onClick={() => { void handleRenameEntry(); }} disabled={!canManageEntry || isConnectionBusy}>
+            <Pencil className="ui-icon" aria-hidden="true" />
             重命名
           </button>
           <button type="button" onClick={() => { void handleDeleteEntry(); }} disabled={!canManageEntry || isConnectionBusy}>
+            <Trash2 className="ui-icon" aria-hidden="true" />
             删除
           </button>
         </div>
@@ -1209,7 +1237,10 @@ export function RemoteFileManager({
         <div className="modal-overlay" onClick={() => setInputDialog(null)}>
           <div className="modal-content remote-file-input-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>{inputDialog.title}</h2>
+              <h2>
+                <FilePlus className="ui-icon" aria-hidden="true" />
+                {inputDialog.title}
+              </h2>
             </div>
             <form
               onSubmit={(event) => {
@@ -1227,9 +1258,11 @@ export function RemoteFileManager({
               />
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setInputDialog(null)}>
+                  <X className="ui-icon" aria-hidden="true" />
                   取消
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={!inputDialog.value.trim()}>
+                  <Check className="ui-icon" aria-hidden="true" />
                   {inputDialog.confirmLabel}
                 </button>
               </div>
@@ -1241,7 +1274,10 @@ export function RemoteFileManager({
         <div className="modal-overlay" onClick={() => setDeleteDialog(null)}>
           <div className="modal-content remote-file-input-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>确认删除</h2>
+              <h2>
+                <Trash2 className="ui-icon danger-icon" aria-hidden="true" />
+                确认删除
+              </h2>
             </div>
             <form
               onSubmit={(event) => {
@@ -1256,9 +1292,11 @@ export function RemoteFileManager({
               </div>
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setDeleteDialog(null)}>
+                  <X className="ui-icon" aria-hidden="true" />
                   取消
                 </button>
                 <button type="submit" className="btn btn-danger">
+                  <Trash2 className="ui-icon" aria-hidden="true" />
                   确认删除
                 </button>
               </div>

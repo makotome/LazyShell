@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { MonitorDot, Plus, Server, X } from 'lucide-react';
 import type { ServerTab, LayoutMode } from '../types';
 
 interface TabBarProps {
@@ -80,6 +81,7 @@ export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, l
     <div className="tab-bar">
       <div className="workspace-status" title={activeTab ? `${activeTab.serverName}:${activeDir}` : '未连接服务器'}>
         <span className={`workspace-status-dot ${activeTab ? 'online' : ''}`} aria-hidden="true" />
+        <Server className="workspace-status-icon" aria-hidden="true" />
         <div className="workspace-status-copy">
           <span className="workspace-status-name">{activeTab ? activeTab.serverName : '未连接服务器'}</span>
           <span className="workspace-status-path">{activeTab ? activeDir : '选择左侧服务器开始'}</span>
@@ -110,16 +112,17 @@ export function TabBar({ tabs, activeTabId, onTabSelect, onTabClose, onNewTab, l
               }}
               title="关闭标签"
             >
-              ×
+              <X className="ui-icon" aria-hidden="true" />
             </button>
           </div>
         ))}
       </div>
       <button className="tab-new" onClick={onNewTab} title="新建标签 (Cmd+T)">
-        +
+        <Plus className="ui-icon" aria-hidden="true" />
       </button>
       <div className="layout-separator" />
       <div className="layout-buttons" aria-label="布局切换">
+        <MonitorDot className="layout-group-icon" aria-hidden="true" />
         {layoutOptions.map(({ mode, title }) => (
           <button
             key={mode}
