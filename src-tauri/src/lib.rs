@@ -5,6 +5,7 @@ mod commands;
 mod commands_db;
 mod cron_tasks;
 mod crypto;
+mod docker_details;
 mod learning;
 mod memory;
 mod service_details;
@@ -72,6 +73,7 @@ pub fn run() {
             cron_tasks::preview_cron_task_change,
             cron_tasks::apply_cron_task_change,
             service_details::get_service_details,
+            docker_details::get_docker_details,
             ai::call_ai,
             ai::call_ai_orchestrated,
             learning::record_execution_feedback,

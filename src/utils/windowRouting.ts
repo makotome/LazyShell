@@ -1,4 +1,4 @@
-export type AppWindowKind = 'main' | 'file-browser' | 'file-editor' | 'ssl-cert-manager' | 'cron-task-manager' | 'service-details';
+export type AppWindowKind = 'main' | 'file-browser' | 'file-editor' | 'ssl-cert-manager' | 'cron-task-manager' | 'service-details' | 'docker-manager';
 
 export interface FileBrowserWindowContext {
   kind: 'file-browser';
@@ -37,13 +37,21 @@ export interface ServiceDetailsWindowContext {
   serverName: string;
 }
 
+export interface DockerManagerWindowContext {
+  kind: 'docker-manager';
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
 export type RoutedWindowContext =
   | { kind: 'main' }
   | FileBrowserWindowContext
   | FileEditorWindowContext
   | SslCertificateManagerWindowContext
   | CronTaskManagerWindowContext
-  | ServiceDetailsWindowContext;
+  | ServiceDetailsWindowContext
+  | DockerManagerWindowContext;
 
 function getStringParam(params: URLSearchParams, key: string, fallback = ''): string {
   const value = params.get(key);
@@ -93,6 +101,15 @@ export function getWindowContext(): RoutedWindowContext {
   }
 
   if (kind === 'service-details') {
+    return {
+      kind,
+      tabId: getStringParam(params, 'tabId'),
+      serverId: getStringParam(params, 'serverId'),
+      serverName: getStringParam(params, 'serverName'),
+    };
+  }
+
+  if (kind === 'docker-manager') {
     return {
       kind,
       tabId: getStringParam(params, 'tabId'),

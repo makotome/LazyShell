@@ -34,6 +34,12 @@ interface ServiceDetailsWindowOptions {
   serverName: string;
 }
 
+interface DockerManagerWindowOptions {
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
 interface WindowPlacement {
   x: number;
   y: number;
@@ -62,6 +68,10 @@ export function getCronTaskWindowLabel(tabId: string): string {
 
 export function getServiceDetailsWindowLabel(tabId: string): string {
   return `service-details-${tabId}`;
+}
+
+export function getDockerManagerWindowLabel(tabId: string): string {
+  return `docker-manager-${tabId}`;
 }
 
 async function getWindowPlacement(width: number, height: number): Promise<WindowPlacement | null> {
@@ -289,5 +299,41 @@ export async function openServiceDetailsWindow(options: ServiceDetailsWindowOpti
   });
   created.once('tauri://error', (event) => {
     console.error('Failed to create service details window:', event.payload);
+  }).catch(() => {});
+}
+
+export async function openDockerManagerWindow(options: DockerManagerWindowOptions): Promise<void> {
+  const label = getDockerManagerWindowLabel(options.tabId);
+  const existing = await WebviewWindow.getByLabel(label);
+  if (existing) {
+    await existing.show();
+    await existing.unminimize();
+    await existing.setFocus();
+    return;
+  }
+
+  const title = `${options.serverName} · Docker 容器`;
+  const windowUrl = createWindowUrl({
+    window: 'docker-manager',
+    tabId: options.tabId,
+    serverId: options.serverId,
+    serverName: options.serverName,
+  });
+  const width = 1180;
+  const height = 760;
+  const placement = await getWindowPlacement(width, height);
+
+  const created = new WebviewWindow(label, {
+    title,
+    url: windowUrl,
+    width,
+    height,
+    minWidth: 940,
+    minHeight: 620,
+    resizable: true,
+    ...(placement ? placement : { center: true }),
+  });
+  created.once('tauri://error', (event) => {
+    console.error('Failed to create Docker manager window:', event.payload);
   }).catch(() => {});
 }

@@ -434,6 +434,81 @@ export interface ServiceDetailsSnapshot {
   lastError: string | null;
 }
 
+export interface DockerComposeInfo {
+  project: string | null;
+  service: string | null;
+  containerNumber: string | null;
+  workingDir: string | null;
+  configFiles: string[];
+}
+
+export interface DockerPortBinding {
+  privatePort: string;
+  publicHost: string | null;
+  publicPort: string | null;
+  protocol: string;
+}
+
+export interface DockerMountInfo {
+  source: string | null;
+  destination: string;
+  mode: string | null;
+  mountType: string;
+  rw: boolean;
+}
+
+export interface DockerNetworkDetail {
+  name: string;
+  ipAddress: string | null;
+  gateway: string | null;
+  aliases: string[];
+}
+
+export interface DockerContainerRelation {
+  targetId: string;
+  targetName: string;
+  relationType: 'compose' | 'network' | 'envReference' | string;
+  source: string;
+  detail: string;
+}
+
+export interface DockerContainerRecord {
+  id: string;
+  shortId: string;
+  name: string;
+  image: string;
+  imageId: string | null;
+  state: string;
+  status: string;
+  createdAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  uptimeSeconds: number | null;
+  restartCount: number;
+  command: string;
+  entrypoint: string[];
+  args: string[];
+  env: string[];
+  workingDir: string | null;
+  restartPolicy: string | null;
+  networkMode: string | null;
+  externallyExposed: boolean;
+  ports: DockerPortBinding[];
+  mounts: DockerMountInfo[];
+  networks: DockerNetworkDetail[];
+  compose: DockerComposeInfo | null;
+  relatedContainers: DockerContainerRelation[];
+  labels: Record<string, string>;
+}
+
+export interface DockerDetailsSnapshot {
+  serverId: string;
+  scannedAt: number;
+  dockerVersion: string | null;
+  containers: DockerContainerRecord[];
+  lastError: string | null;
+}
+
 export interface BuiltinCommand {
   name: string;
   description: string;

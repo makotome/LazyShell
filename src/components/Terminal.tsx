@@ -4,8 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
-import { Activity, Clock3, FolderOpen, RefreshCw, ShieldCheck } from 'lucide-react';
-import { openCronTaskManagerWindow, openFileBrowserWindow, openServiceDetailsWindow, openSslCertificateManagerWindow } from '../utils/remoteWindows';
+import { Activity, Box, Clock3, FolderOpen, RefreshCw, ShieldCheck } from 'lucide-react';
+import { openCronTaskManagerWindow, openDockerManagerWindow, openFileBrowserWindow, openServiceDetailsWindow, openSslCertificateManagerWindow } from '../utils/remoteWindows';
 import type { PendingAiTerminalExecution, ShellSendResult, TerminalConnectionState } from '../types';
 import 'xterm/css/xterm.css';
 
@@ -1093,6 +1093,15 @@ export function Terminal({
     });
   }, [serverId, serverName, tabId]);
 
+  const handleOpenDockerManager = useCallback(() => {
+    lastUserInteractionAtRef.current = Date.now();
+    void openDockerManagerWindow({
+      tabId,
+      serverId,
+      serverName,
+    });
+  }, [serverId, serverName, tabId]);
+
   const showTransientStatus = connectionState === 'checking'
     || connectionState === 'reconnecting'
     || connectionState === 'restoring';
@@ -1161,6 +1170,16 @@ export function Terminal({
             >
               <Activity className="ui-icon" aria-hidden="true" />
               Services
+            </button>
+            <button
+              type="button"
+              className="terminal-stage-action-btn"
+              onClick={handleOpenDockerManager}
+              title="打开 Docker 容器"
+              aria-label="打开 Docker 容器"
+            >
+              <Box className="ui-icon" aria-hidden="true" />
+              Docker
             </button>
           </div>
         </div>

@@ -25,6 +25,10 @@ const ServiceDetailsManager = lazy(async () => {
   const module = await import('./components/ServiceDetailsManager')
   return { default: module.ServiceDetailsManager }
 })
+const DockerManager = lazy(async () => {
+  const module = await import('./components/DockerManager')
+  return { default: module.DockerManager }
+})
 
 const context = getWindowContext()
 
@@ -86,6 +90,13 @@ function Root() {
   } else if (context.kind === 'service-details') {
     content = (
       <ServiceDetailsManager
+        serverId={context.serverId}
+        serverName={context.serverName}
+      />
+    )
+  } else if (context.kind === 'docker-manager') {
+    content = (
+      <DockerManager
         serverId={context.serverId}
         serverName={context.serverName}
       />
