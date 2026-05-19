@@ -298,6 +298,142 @@ export interface RemoteFileContent {
   isReadonly: boolean;
 }
 
+export type SslCertificateStatus = 'missing' | 'valid' | 'expiring' | 'expired' | 'unreadable';
+
+export type SslCertificateSource = 'nginx' | 'manual';
+
+export interface NginxCertificateBinding {
+  configPath: string;
+  serverNames: string[];
+  listen: string[];
+  certificateKeyPath: string | null;
+}
+
+export interface SslCertificateRecord {
+  id: string;
+  name: string;
+  path: string;
+  source: SslCertificateSource;
+  status: SslCertificateStatus;
+  exists: boolean;
+  issuedAt: number | null;
+  expiresAt: number | null;
+  daysUntilExpiry: number | null;
+  subject: string | null;
+  issuer: string | null;
+  domains: string[];
+  bindings: NginxCertificateBinding[];
+  lastCheckedAt: number;
+  lastError: string | null;
+}
+
+export interface SslCertificateScanResult {
+  serverId: string;
+  records: SslCertificateRecord[];
+  scannedAt: number | null;
+  lastError: string | null;
+}
+
+export type CronTaskSource = 'userCrontab' | 'systemCrontab' | 'cronD' | 'periodicDirectory';
+
+export type CronTaskStatus = 'active' | 'disabled' | 'invalid' | 'unreadable';
+
+export type CronTaskChangeAction = 'create' | 'update' | 'disable' | 'enable' | 'delete';
+
+export interface CronTaskRecord {
+  id: string;
+  source: CronTaskSource;
+  sourcePath: string | null;
+  lineNumber: number | null;
+  schedule: string;
+  scheduleDescription: string;
+  user: string | null;
+  command: string;
+  status: CronTaskStatus;
+  env: string[];
+  rawLine: string;
+  scriptPath: string | null;
+  scriptPreview: string | null;
+  sourceHash: string;
+  lastError: string | null;
+}
+
+export interface CronTaskListResult {
+  serverId: string;
+  records: CronTaskRecord[];
+  scannedAt: number;
+  timezone: string | null;
+  lastError: string | null;
+}
+
+export interface CronTaskChangeRequest {
+  action: CronTaskChangeAction;
+  taskId?: string | null;
+  source?: CronTaskSource | null;
+  sourcePath?: string | null;
+  schedule?: string | null;
+  user?: string | null;
+  command?: string | null;
+  rawLine?: string | null;
+}
+
+export interface CronTaskChangePreview {
+  summary: string;
+  affectedSource: string;
+  beforeText: string;
+  afterText: string;
+  commands: string[];
+  requiresSudo: boolean;
+  expectedHash: string;
+  warnings: string[];
+}
+
+export interface DockerContainerInfo {
+  id: string;
+  name: string | null;
+  image: string | null;
+  status: string | null;
+}
+
+export interface ServiceProcessRecord {
+  pid: number;
+  ppid: number;
+  user: string;
+  cpuPercent: number;
+  memoryPercent: number;
+  rssKb: number;
+  commandName: string;
+  command: string;
+  workingDirectory: string | null;
+  executable: string | null;
+  docker: DockerContainerInfo | null;
+  lastError: string | null;
+}
+
+export interface PortServiceRecord {
+  id: string;
+  protocol: string;
+  address: string;
+  port: number;
+  pid: number | null;
+  program: string | null;
+  user: string | null;
+  command: string | null;
+  workingDirectory: string | null;
+  executable: string | null;
+  docker: DockerContainerInfo | null;
+  rawLine: string;
+}
+
+export interface ServiceDetailsSnapshot {
+  serverId: string;
+  scannedAt: number;
+  memoryTop: ServiceProcessRecord[];
+  cpuTop: ServiceProcessRecord[];
+  ports: PortServiceRecord[];
+  lastError: string | null;
+}
+
 export interface BuiltinCommand {
   name: string;
   description: string;

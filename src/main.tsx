@@ -13,6 +13,18 @@ const FileEditorWindow = lazy(async () => {
   const module = await import('./components/FileEditorWindow')
   return { default: module.FileEditorWindow }
 })
+const SslCertificateManager = lazy(async () => {
+  const module = await import('./components/SslCertificateManager')
+  return { default: module.SslCertificateManager }
+})
+const CronTaskManager = lazy(async () => {
+  const module = await import('./components/CronTaskManager')
+  return { default: module.CronTaskManager }
+})
+const ServiceDetailsManager = lazy(async () => {
+  const module = await import('./components/ServiceDetailsManager')
+  return { default: module.ServiceDetailsManager }
+})
 
 const context = getWindowContext()
 
@@ -55,6 +67,27 @@ function Root() {
         serverId={context.serverId}
         serverName={context.serverName}
         path={context.path}
+      />
+    )
+  } else if (context.kind === 'ssl-cert-manager') {
+    content = (
+      <SslCertificateManager
+        serverId={context.serverId}
+        serverName={context.serverName}
+      />
+    )
+  } else if (context.kind === 'cron-task-manager') {
+    content = (
+      <CronTaskManager
+        serverId={context.serverId}
+        serverName={context.serverName}
+      />
+    )
+  } else if (context.kind === 'service-details') {
+    content = (
+      <ServiceDetailsManager
+        serverId={context.serverId}
+        serverName={context.serverName}
       />
     )
   } else {

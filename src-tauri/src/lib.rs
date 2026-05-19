@@ -1,11 +1,14 @@
-mod commands;
-mod commands_db;
-mod crypto;
-mod ssh;
 mod ai;
 mod app_menu;
+mod certificates;
+mod commands;
+mod commands_db;
+mod cron_tasks;
+mod crypto;
 mod learning;
 mod memory;
+mod service_details;
+mod ssh;
 
 use commands::AppState;
 
@@ -61,6 +64,14 @@ pub fn run() {
             commands::delete_remote_entry,
             commands::upload_remote_file,
             commands::download_remote_file,
+            certificates::load_ssl_certificates,
+            certificates::scan_nginx_ssl_certificates,
+            certificates::inspect_ssl_certificate,
+            cron_tasks::list_cron_tasks,
+            cron_tasks::inspect_cron_task,
+            cron_tasks::preview_cron_task_change,
+            cron_tasks::apply_cron_task_change,
+            service_details::get_service_details,
             ai::call_ai,
             ai::call_ai_orchestrated,
             learning::record_execution_feedback,
@@ -98,7 +109,8 @@ pub fn run() {
                 )?;
             }
             app.handle().plugin(tauri_plugin_dialog::init())?;
-            app.handle().plugin(tauri_plugin_clipboard_manager::init())?;
+            app.handle()
+                .plugin(tauri_plugin_clipboard_manager::init())?;
             app_menu::install(app.handle())?;
             Ok(())
         })

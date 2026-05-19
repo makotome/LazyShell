@@ -16,6 +16,24 @@ interface EditorWindowOptions {
   path: string;
 }
 
+interface SslCertificateWindowOptions {
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
+interface CronTaskWindowOptions {
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
+interface ServiceDetailsWindowOptions {
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
 interface WindowPlacement {
   x: number;
   y: number;
@@ -32,6 +50,18 @@ export function getFileBrowserWindowLabel(tabId: string): string {
 
 export function getFileEditorWindowLabel(tabId: string, path: string): string {
   return `file-editor-${tabId}-${hashLabel(path)}`;
+}
+
+export function getSslCertificateWindowLabel(tabId: string): string {
+  return `ssl-cert-manager-${tabId}`;
+}
+
+export function getCronTaskWindowLabel(tabId: string): string {
+  return `cron-task-manager-${tabId}`;
+}
+
+export function getServiceDetailsWindowLabel(tabId: string): string {
+  return `service-details-${tabId}`;
 }
 
 async function getWindowPlacement(width: number, height: number): Promise<WindowPlacement | null> {
@@ -151,5 +181,113 @@ export async function openFileEditorWindow(options: EditorWindowOptions): Promis
   });
   created.once('tauri://error', (event) => {
     console.error('Failed to create file editor window:', event.payload);
+  }).catch(() => {});
+}
+
+export async function openSslCertificateManagerWindow(options: SslCertificateWindowOptions): Promise<void> {
+  const label = getSslCertificateWindowLabel(options.tabId);
+  const existing = await WebviewWindow.getByLabel(label);
+  if (existing) {
+    await existing.show();
+    await existing.unminimize();
+    await existing.setFocus();
+    return;
+  }
+
+  const title = `${options.serverName} · SSL 证书管理`;
+  const windowUrl = createWindowUrl({
+    window: 'ssl-cert-manager',
+    tabId: options.tabId,
+    serverId: options.serverId,
+    serverName: options.serverName,
+  });
+  const width = 1180;
+  const height = 760;
+  const placement = await getWindowPlacement(width, height);
+
+  const created = new WebviewWindow(label, {
+    title,
+    url: windowUrl,
+    width,
+    height,
+    minWidth: 940,
+    minHeight: 620,
+    resizable: true,
+    ...(placement ? placement : { center: true }),
+  });
+  created.once('tauri://error', (event) => {
+    console.error('Failed to create SSL certificate manager window:', event.payload);
+  }).catch(() => {});
+}
+
+export async function openCronTaskManagerWindow(options: CronTaskWindowOptions): Promise<void> {
+  const label = getCronTaskWindowLabel(options.tabId);
+  const existing = await WebviewWindow.getByLabel(label);
+  if (existing) {
+    await existing.show();
+    await existing.unminimize();
+    await existing.setFocus();
+    return;
+  }
+
+  const title = `${options.serverName} · 定时任务管理`;
+  const windowUrl = createWindowUrl({
+    window: 'cron-task-manager',
+    tabId: options.tabId,
+    serverId: options.serverId,
+    serverName: options.serverName,
+  });
+  const width = 1180;
+  const height = 760;
+  const placement = await getWindowPlacement(width, height);
+
+  const created = new WebviewWindow(label, {
+    title,
+    url: windowUrl,
+    width,
+    height,
+    minWidth: 940,
+    minHeight: 620,
+    resizable: true,
+    ...(placement ? placement : { center: true }),
+  });
+  created.once('tauri://error', (event) => {
+    console.error('Failed to create cron task manager window:', event.payload);
+  }).catch(() => {});
+}
+
+export async function openServiceDetailsWindow(options: ServiceDetailsWindowOptions): Promise<void> {
+  const label = getServiceDetailsWindowLabel(options.tabId);
+  const existing = await WebviewWindow.getByLabel(label);
+  if (existing) {
+    await existing.show();
+    await existing.unminimize();
+    await existing.setFocus();
+    return;
+  }
+
+  const title = `${options.serverName} · 服务详情`;
+  const windowUrl = createWindowUrl({
+    window: 'service-details',
+    tabId: options.tabId,
+    serverId: options.serverId,
+    serverName: options.serverName,
+  });
+  const width = 1180;
+  const height = 760;
+  const placement = await getWindowPlacement(width, height);
+
+  const created = new WebviewWindow(label, {
+    title,
+    url: windowUrl,
+    width,
+    height,
+    minWidth: 940,
+    minHeight: 620,
+    resizable: true,
+    ...(placement ? placement : { center: true }),
+  });
+  created.once('tauri://error', (event) => {
+    console.error('Failed to create service details window:', event.payload);
   }).catch(() => {});
 }

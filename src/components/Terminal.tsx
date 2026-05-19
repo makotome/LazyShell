@@ -4,8 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
-import { FolderOpen, RefreshCw } from 'lucide-react';
-import { openFileBrowserWindow } from '../utils/remoteWindows';
+import { Activity, Clock3, FolderOpen, RefreshCw, ShieldCheck } from 'lucide-react';
+import { openCronTaskManagerWindow, openFileBrowserWindow, openServiceDetailsWindow, openSslCertificateManagerWindow } from '../utils/remoteWindows';
 import type { PendingAiTerminalExecution, ShellSendResult, TerminalConnectionState } from '../types';
 import 'xterm/css/xterm.css';
 
@@ -1066,6 +1066,33 @@ export function Terminal({
     });
   }, [currentDir, serverId, serverName, tabId]);
 
+  const handleOpenSslCertificateManager = useCallback(() => {
+    lastUserInteractionAtRef.current = Date.now();
+    void openSslCertificateManagerWindow({
+      tabId,
+      serverId,
+      serverName,
+    });
+  }, [serverId, serverName, tabId]);
+
+  const handleOpenCronTaskManager = useCallback(() => {
+    lastUserInteractionAtRef.current = Date.now();
+    void openCronTaskManagerWindow({
+      tabId,
+      serverId,
+      serverName,
+    });
+  }, [serverId, serverName, tabId]);
+
+  const handleOpenServiceDetails = useCallback(() => {
+    lastUserInteractionAtRef.current = Date.now();
+    void openServiceDetailsWindow({
+      tabId,
+      serverId,
+      serverName,
+    });
+  }, [serverId, serverName, tabId]);
+
   const showTransientStatus = connectionState === 'checking'
     || connectionState === 'reconnecting'
     || connectionState === 'restoring';
@@ -1104,6 +1131,36 @@ export function Terminal({
             >
               <FolderOpen className="ui-icon" aria-hidden="true" />
               Files
+            </button>
+            <button
+              type="button"
+              className="terminal-stage-action-btn"
+              onClick={handleOpenSslCertificateManager}
+              title="打开 SSL 证书管理"
+              aria-label="打开 SSL 证书管理"
+            >
+              <ShieldCheck className="ui-icon" aria-hidden="true" />
+              SSL
+            </button>
+            <button
+              type="button"
+              className="terminal-stage-action-btn"
+              onClick={handleOpenCronTaskManager}
+              title="打开定时任务管理"
+              aria-label="打开定时任务管理"
+            >
+              <Clock3 className="ui-icon" aria-hidden="true" />
+              Tasks
+            </button>
+            <button
+              type="button"
+              className="terminal-stage-action-btn"
+              onClick={handleOpenServiceDetails}
+              title="打开服务详情"
+              aria-label="打开服务详情"
+            >
+              <Activity className="ui-icon" aria-hidden="true" />
+              Services
             </button>
           </div>
         </div>

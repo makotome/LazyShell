@@ -1,4 +1,4 @@
-export type AppWindowKind = 'main' | 'file-browser' | 'file-editor';
+export type AppWindowKind = 'main' | 'file-browser' | 'file-editor' | 'ssl-cert-manager' | 'cron-task-manager' | 'service-details';
 
 export interface FileBrowserWindowContext {
   kind: 'file-browser';
@@ -16,10 +16,34 @@ export interface FileEditorWindowContext {
   path: string;
 }
 
+export interface SslCertificateManagerWindowContext {
+  kind: 'ssl-cert-manager';
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
+export interface CronTaskManagerWindowContext {
+  kind: 'cron-task-manager';
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
+export interface ServiceDetailsWindowContext {
+  kind: 'service-details';
+  tabId: string;
+  serverId: string;
+  serverName: string;
+}
+
 export type RoutedWindowContext =
   | { kind: 'main' }
   | FileBrowserWindowContext
-  | FileEditorWindowContext;
+  | FileEditorWindowContext
+  | SslCertificateManagerWindowContext
+  | CronTaskManagerWindowContext
+  | ServiceDetailsWindowContext;
 
 function getStringParam(params: URLSearchParams, key: string, fallback = ''): string {
   const value = params.get(key);
@@ -47,6 +71,33 @@ export function getWindowContext(): RoutedWindowContext {
       serverId: getStringParam(params, 'serverId'),
       serverName: getStringParam(params, 'serverName'),
       path: getStringParam(params, 'path'),
+    };
+  }
+
+  if (kind === 'ssl-cert-manager') {
+    return {
+      kind,
+      tabId: getStringParam(params, 'tabId'),
+      serverId: getStringParam(params, 'serverId'),
+      serverName: getStringParam(params, 'serverName'),
+    };
+  }
+
+  if (kind === 'cron-task-manager') {
+    return {
+      kind,
+      tabId: getStringParam(params, 'tabId'),
+      serverId: getStringParam(params, 'serverId'),
+      serverName: getStringParam(params, 'serverName'),
+    };
+  }
+
+  if (kind === 'service-details') {
+    return {
+      kind,
+      tabId: getStringParam(params, 'tabId'),
+      serverId: getStringParam(params, 'serverId'),
+      serverName: getStringParam(params, 'serverName'),
     };
   }
 

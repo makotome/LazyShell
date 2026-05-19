@@ -29,6 +29,1186 @@
   --font-mono: 'JetBrains Mono', 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
 }
 
+.ssl-cert-manager {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #090b0f;
+  color: var(--text-primary);
+}
+
+.ssl-cert-window-shell {
+  color: #d8dde5;
+}
+
+.ssl-cert-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(13, 16, 21, 0.96);
+}
+
+.ssl-cert-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ssl-cert-title-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(var(--accent-tertiary-rgb), 0.26);
+  border-radius: 8px;
+  color: var(--accent-tertiary);
+  background: rgba(var(--accent-tertiary-rgb), 0.1);
+}
+
+.ssl-cert-title-main {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ssl-cert-title-sub,
+.ssl-cert-toolbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ssl-cert-toolbar-meta {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.ssl-cert-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ssl-cert-banner {
+  margin: 12px 16px 0;
+}
+
+.ssl-cert-shell {
+  display: grid;
+  grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 16px 16px;
+}
+
+.ssl-cert-list-panel,
+.ssl-cert-detail-panel {
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(13, 16, 21, 0.74);
+  overflow: hidden;
+}
+
+.ssl-cert-list-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.ssl-cert-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ssl-cert-panel-header span:first-child,
+.ssl-cert-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ssl-cert-list {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.ssl-cert-list.is-pending {
+  opacity: 0.74;
+}
+
+.ssl-cert-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  width: 100%;
+  gap: 4px 10px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ssl-cert-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ssl-cert-row.selected {
+  border-color: rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.ssl-cert-status-dot {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.ssl-cert-status-dot.valid,
+.ssl-cert-status-pill.valid {
+  color: var(--success);
+  background: rgba(var(--accent-tertiary-rgb), 0.12);
+}
+
+.ssl-cert-status-dot.expiring,
+.ssl-cert-status-pill.expiring {
+  color: var(--warning);
+  background: rgba(var(--accent-gold-rgb), 0.14);
+}
+
+.ssl-cert-status-dot.expired,
+.ssl-cert-status-dot.missing,
+.ssl-cert-status-dot.unreadable,
+.ssl-cert-status-pill.expired,
+.ssl-cert-status-pill.missing,
+.ssl-cert-status-pill.unreadable {
+  color: var(--danger);
+  background: rgba(255, 125, 115, 0.13);
+}
+
+.ssl-cert-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.ssl-cert-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ssl-cert-row-domains,
+.ssl-cert-row-path,
+.ssl-cert-row-expiry,
+.ssl-cert-muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ssl-cert-row-path {
+  font-family: var(--font-mono);
+}
+
+.ssl-cert-row-expiry {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.ssl-cert-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 66px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ssl-cert-detail-panel {
+  overflow: auto;
+  padding: 16px;
+}
+
+.ssl-cert-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.ssl-cert-detail-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.ssl-cert-detail-path,
+.ssl-cert-code-row,
+.ssl-cert-binding-path {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ssl-cert-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ssl-cert-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ssl-cert-field span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ssl-cert-field strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.ssl-cert-section {
+  margin-top: 18px;
+}
+
+.ssl-cert-section-title {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ssl-cert-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ssl-cert-chip {
+  max-width: 100%;
+  padding: 6px 9px;
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: rgba(var(--accent-rgb), 0.08);
+  font-size: 12px;
+}
+
+.ssl-cert-detail-error {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  color: var(--danger);
+  background: rgba(255, 125, 115, 0.1);
+  font-size: 12px;
+}
+
+.ssl-cert-binding-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ssl-cert-binding {
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ssl-cert-binding-meta {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ssl-cert-empty,
+.ssl-cert-detail-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  min-height: 280px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ssl-cert-empty .ui-icon,
+.ssl-cert-detail-empty .ui-icon {
+  font-size: 26px;
+  color: var(--accent-primary);
+}
+
+.ssl-cert-manual-modal {
+  max-width: 560px;
+}
+
+.cron-task-manager {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #090b0f;
+  color: var(--text-primary);
+}
+
+.cron-task-window-shell {
+  color: #d8dde5;
+}
+
+.cron-task-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(13, 16, 21, 0.96);
+}
+
+.cron-task-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cron-task-title-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.28);
+  border-radius: 8px;
+  color: var(--accent-gold);
+  background: rgba(var(--accent-gold-rgb), 0.1);
+}
+
+.cron-task-title-main {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.cron-task-title-sub,
+.cron-task-toolbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.cron-task-toolbar-meta {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.cron-task-toolbar-actions,
+.cron-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cron-task-banner {
+  margin: 12px 16px 0;
+}
+
+.cron-task-shell {
+  display: grid;
+  grid-template-columns: minmax(330px, 390px) minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 16px 16px;
+}
+
+.cron-task-list-panel,
+.cron-task-detail-panel {
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(13, 16, 21, 0.74);
+  overflow: hidden;
+}
+
+.cron-task-list-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.cron-task-panel-header,
+.cron-task-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.cron-task-panel-header {
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+}
+
+.cron-task-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.cron-task-list.is-pending {
+  opacity: 0.74;
+}
+
+.cron-task-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cron-task-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cron-task-row.selected {
+  border-color: rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.cron-task-status-dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.cron-task-status-dot.active,
+.cron-task-status-pill.active {
+  color: var(--success);
+  background: rgba(var(--accent-tertiary-rgb), 0.12);
+}
+
+.cron-task-status-dot.disabled,
+.cron-task-status-pill.disabled {
+  color: var(--warning);
+  background: rgba(var(--accent-gold-rgb), 0.14);
+}
+
+.cron-task-status-dot.invalid,
+.cron-task-status-dot.unreadable,
+.cron-task-status-pill.invalid,
+.cron-task-status-pill.unreadable {
+  color: var(--danger);
+  background: rgba(255, 125, 115, 0.13);
+}
+
+.cron-task-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.cron-task-row-command {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cron-task-row-source,
+.cron-task-row-schedule {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cron-task-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cron-task-detail-panel {
+  overflow: auto;
+  padding: 16px;
+}
+
+.cron-task-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.cron-task-detail-title {
+  font-size: 18px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.cron-task-detail-path,
+.cron-task-code-row {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.cron-task-actions {
+  margin-top: 12px;
+}
+
+.cron-task-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.cron-task-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.cron-task-field span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cron-task-field strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.cron-task-section {
+  margin-top: 18px;
+}
+
+.cron-task-section-title {
+  margin-bottom: 10px;
+}
+
+.cron-task-code-block {
+  max-height: 320px;
+  overflow: auto;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.025);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cron-task-script-preview {
+  max-height: 420px;
+}
+
+.cron-task-warning-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  color: var(--warning);
+  background: rgba(var(--accent-gold-rgb), 0.1);
+  font-size: 12px;
+}
+
+.cron-task-readable-card,
+.cron-task-ai-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.cron-task-readable-card {
+  display: grid;
+}
+
+.cron-task-readable-card strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.cron-task-readable-card span,
+.cron-task-ai-copy {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.cron-task-ai-card.loading {
+  border-color: rgba(var(--accent-rgb), 0.22);
+}
+
+.cron-task-ai-card.error {
+  border-color: rgba(255, 125, 115, 0.24);
+}
+
+.cron-task-ai-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.cron-task-ai-error {
+  color: var(--danger);
+}
+
+.cron-task-detail-error {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  color: var(--danger);
+  background: rgba(255, 125, 115, 0.1);
+  font-size: 12px;
+}
+
+.cron-task-empty,
+.cron-task-detail-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  min-height: 280px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.cron-task-empty .ui-icon,
+.cron-task-detail-empty .ui-icon {
+  font-size: 26px;
+  color: var(--accent-gold);
+}
+
+.cron-task-modal {
+  max-width: 620px;
+}
+
+.cron-task-form {
+  display: grid;
+  gap: 10px;
+}
+
+.cron-task-form label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cron-task-command-input {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.cron-task-preview-modal {
+  width: min(980px, calc(100vw - 36px));
+  max-width: 980px;
+}
+
+.cron-task-preview-body {
+  display: grid;
+  gap: 12px;
+}
+
+.cron-task-preview-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.cron-task-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.service-details-manager {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #090b0f;
+  color: var(--text-primary);
+}
+
+.service-details-window-shell {
+  color: #d8dde5;
+}
+
+.service-details-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(13, 16, 21, 0.96);
+}
+
+.service-details-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.service-details-title-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  border-radius: 8px;
+  color: var(--accent-primary);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.service-details-title-main {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.service-details-title-sub,
+.service-details-toolbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.service-details-toolbar-meta {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.service-details-banner {
+  margin: 12px 16px 0;
+}
+
+.service-details-shell {
+  display: grid;
+  grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 16px 16px;
+}
+
+.service-details-list-panel,
+.service-details-detail-panel {
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(13, 16, 21, 0.74);
+  overflow: hidden;
+}
+
+.service-details-list-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.service-details-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.service-details-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.service-details-tabs button:hover,
+.service-details-tabs button.active {
+  border-color: rgba(var(--accent-rgb), 0.24);
+  color: var(--text-primary);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.service-details-panel-header,
+.service-details-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.service-details-panel-header {
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+}
+
+.service-details-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.service-details-list.is-pending {
+  opacity: 0.74;
+}
+
+.service-details-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.service-details-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.service-details-row.selected {
+  border-color: rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.service-details-row-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--accent-primary);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.service-details-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.service-details-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.service-details-row-sub,
+.service-details-row-command {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.service-details-row-metric,
+.service-details-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--accent-tertiary);
+  background: rgba(var(--accent-tertiary-rgb), 0.12);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.service-details-detail-panel {
+  overflow: auto;
+  padding: 16px;
+}
+
+.service-details-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.service-details-detail-title {
+  font-size: 18px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.service-details-detail-path {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.service-details-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.service-details-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.service-details-field span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.service-details-field strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.service-details-section {
+  margin-top: 18px;
+}
+
+.service-details-section-title {
+  margin-bottom: 10px;
+}
+
+.service-details-code-block {
+  max-height: 320px;
+  overflow: auto;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.025);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.service-details-docker-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.service-details-docker-card strong {
+  color: var(--text-primary);
+}
+
+.service-details-detail-error {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  color: var(--danger);
+  background: rgba(255, 125, 115, 0.1);
+  font-size: 12px;
+}
+
+.service-details-empty,
+.service-details-detail-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  min-height: 280px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.service-details-empty .ui-icon,
+.service-details-detail-empty .ui-icon {
+  font-size: 26px;
+  color: var(--accent-primary);
+}
+
+@media (max-width: 920px) {
+  .cron-task-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .cron-task-shell,
+  .cron-task-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cron-task-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .service-details-toolbar,
+  .service-details-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .service-details-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 920px) {
+  .ssl-cert-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .ssl-cert-toolbar-actions {
+    justify-content: flex-start;
+  }
+
+  .ssl-cert-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .ssl-cert-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
